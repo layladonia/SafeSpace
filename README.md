@@ -5,6 +5,8 @@ Texas A&M Senior Capstone.
 
 **Team:** Caiti McInerny · Bhavana Venkatesh · Kloie Kim · Layla Donia
 
+**Sponsor:** Nuronest
+
 SafeSpace lets users upload room photos and get a clear, visual breakdown of the room's color environment. It then compares that breakdown to a configurable, general low-stimulation design profile built from public sources.
 
 > **Independent project:** SafeSpace is built only from student-written code and public/open-source tools. It uses no proprietary code, models, datasets, thresholds, or credentials from any outside organization.

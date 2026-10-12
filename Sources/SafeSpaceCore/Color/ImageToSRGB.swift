@@ -29,8 +29,7 @@ public struct ImageToSRGB {
         let image = PixelBuffer(width: Int(width), height: Int(height), bytes: bytes)
         let profile = colorProfile(of: data)
 
-        // No ICC engine here: a profile we can't identify as sRGB or Display P3 would be
-        // silently misinterpreted, so refuse to analyze it rather than guess.
+        // if it's not sRGB or p3, we can't analyze it right now
         guard profile != .unsupported else { return nil }
 
         let maxDimension = max(image.width, image.height)
@@ -46,7 +45,7 @@ public struct ImageToSRGB {
     }
 
     private enum ColorProfile: Equatable {
-        case none      // no embedded profile: assumed sRGB per convention
+        case none      
         case sRGB
         case displayP3
         case unsupported
@@ -75,10 +74,6 @@ public struct ImageToSRGB {
         return PixelBuffer(width: buffer.width, height: buffer.height, bytes: bytes)
     }
 
-    /// Testable for detection logic only; real callers should go through `colorProfile(of:)`.
-    static func isDisplayP3JPEG(_ data: Data) -> Bool {
-        colorProfile(of: data) == .displayP3
-    }
 
     /// Extracts a JPEG's embedded ICC profile bytes from its APP2 `ICC_PROFILE` segments
     /// (uncompressed per spec, possibly split across multiple segments). Returns nil for
@@ -118,14 +113,15 @@ public struct ImageToSRGB {
         return chunks.keys.sorted().flatMap { chunks[$0]! }
     }
 
-    private static func contains(_ haystack: [UInt8], _ needle: [UInt8]) -> Bool {
-        guard !needle.isEmpty, haystack.count >= needle.count else { return false }
-        for i in 0...(haystack.count - needle.count) {
-            if Array(haystack[i..<(i + needle.count)]) == needle { return true }
+    private static func contains(_ source: [UInt8], _ target: [UInt8]) -> Bool {
+        guard !target.isEmpty, source.count >= target.count else { return false }
+        for i in 0...(source.count - target.count) {
+            if Array(source[i..<(i + target.count)]) == target { return true }
         }
         return false
     }
 
+    // calculates a new pixel's color from the four nearest pixels
     private static func bilinearResize(_ src: PixelBuffer, to targetWidth: Int, _ targetHeight: Int) -> PixelBuffer {
         var dst = [UInt8](repeating: 0, count: targetWidth * targetHeight * 4)
         let xRatio = Double(src.width - 1) / Double(max(targetWidth - 1, 1))

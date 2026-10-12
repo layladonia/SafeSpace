@@ -1,0 +1,47 @@
+{
+  "schema_version": "0",
+  "assessment_id": "mock-assessment-002",
+  "created_at": "2026-10-12T18:00:00Z",
+  "steps": {
+    "quality": {
+      "status": "skipped",
+      "reason": "not_implemented",
+      "result": null
+    },
+    "anonymization": {
+      "status": "skipped",
+      "reason": "not_implemented",
+      "result": null
+    },
+    "palette": {
+      "status": "completed",
+      "reason": null,
+      "result": {
+        "colors": [
+          {
+            "id": "color-1",
+            "hex": "#FFFFFF"
+          },
+          {
+            "id": "color-2",
+            "hex": "#000000"
+          }
+        ]
+      }
+    },
+    "contrast": {
+      "status": "completed",
+      "reason": null,
+      "result": {
+        "method": "srgb_relative_luminance",
+        "pairs": [
+          {
+            "color_a_id": "color-1",
+            "color_b_id": "color-2",
+            "ratio": 21.0
+          }
+        ]
+      }
+    }
+  }
+}

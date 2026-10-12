@@ -1,0 +1,30 @@
+{
+  "schema_version": "0",
+  "assessment_id": "mock-assessment-003",
+  "created_at": "2026-10-12T18:00:00Z",
+  "steps": {
+    "quality": {
+      "status": "completed",
+      "reason": null,
+      "result": {
+        "acceptable": true,
+        "issues": []
+      }
+    },
+    "anonymization": {
+      "status": "skipped",
+      "reason": "not_implemented",
+      "result": null
+    },
+    "palette": {
+      "status": "failed",
+      "reason": "palette_extraction_failed",
+      "result": null
+    },
+    "contrast": {
+      "status": "skipped",
+      "reason": "dependency_failed",
+      "result": null
+    }
+  }
+}

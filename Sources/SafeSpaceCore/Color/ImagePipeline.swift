@@ -1,7 +1,7 @@
 import Foundation
 
 public struct ImagePipeline {
-    public static func analyze(imageURL: URL, mask: PixelBuffer? = nil) -> ([PerceptualColor], [PerceptualColor])? {
+    public static func analyze(imageURL: URL, mask: Pixels? = nil) -> ([PerceptualColor], [PerceptualColor])? {
         guard let normalizedImage = ImageToSRGB.processImage(at: imageURL) else { return nil }
 
         let maskedImage = EligibilityMask.apply(mask: mask, to: normalizedImage)

@@ -1,6 +1,6 @@
 // represent an image as raw pixel data using uses RGBA8 (red, green, blue, alpha (opacity))
 
-public struct PixelBuffer {
+public struct Pixels {
     public let width: Int
     public let height: Int
     public var bytes: [UInt8]

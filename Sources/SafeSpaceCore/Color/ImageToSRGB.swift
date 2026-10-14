@@ -5,7 +5,7 @@ import CStbImage
 import Foundation
 
 public struct ImageToSRGB {
-    public static func processImage(at url: URL) -> PixelBuffer? {
+    public static func processImage(at url: URL) -> Pixels? {
         guard let data = try? Data(contentsOf: url) else { return nil }
 
         var width: Int32 = 0
@@ -26,7 +26,7 @@ public struct ImageToSRGB {
         defer { stbi_image_free(decoded) }
 
         let bytes = Array(UnsafeBufferPointer(start: decoded, count: Int(width) * Int(height) * 4))
-        let image = PixelBuffer(width: Int(width), height: Int(height), bytes: bytes)
+        let image = Pixels(width: Int(width), height: Int(height), bytes: bytes)
         let profile = colorProfile(of: data)
 
         // if it's not sRGB or p3, we can't analyze it right now
@@ -59,7 +59,7 @@ public struct ImageToSRGB {
     }
 
     // converting iphone images to sRGB
-    private static func convertDisplayP3ToSRGB(_ buffer: PixelBuffer) -> PixelBuffer {
+    private static func convertDisplayP3ToSRGB(_ buffer: Pixels) -> Pixels {
         var bytes = buffer.bytes
         for offset in stride(from: 0, to: bytes.count, by: 4) {
             let converted = ColorSpace.displayP3ToSRGB(
@@ -71,7 +71,7 @@ public struct ImageToSRGB {
             bytes[offset + 1] = UInt8((converted.g * 255.0).rounded())
             bytes[offset + 2] = UInt8((converted.b * 255.0).rounded())
         }
-        return PixelBuffer(width: buffer.width, height: buffer.height, bytes: bytes)
+        return Pixels(width: buffer.width, height: buffer.height, bytes: bytes)
     }
 
 
@@ -122,7 +122,7 @@ public struct ImageToSRGB {
     }
 
     // calculates a new pixel's color from the four nearest pixels
-    private static func bilinearResize(_ src: PixelBuffer, to targetWidth: Int, _ targetHeight: Int) -> PixelBuffer {
+    private static func bilinearResize(_ src: Pixels, to targetWidth: Int, _ targetHeight: Int) -> Pixels {
         var dst = [UInt8](repeating: 0, count: targetWidth * targetHeight * 4)
         let xRatio = Double(src.width - 1) / Double(max(targetWidth - 1, 1))
         let yRatio = Double(src.height - 1) / Double(max(targetHeight - 1, 1))
@@ -151,6 +151,6 @@ public struct ImageToSRGB {
                 }
             }
         }
-        return PixelBuffer(width: targetWidth, height: targetHeight, bytes: dst)
+        return Pixels(width: targetWidth, height: targetHeight, bytes: dst)
     }
 }

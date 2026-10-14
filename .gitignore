@@ -1,7 +1,30 @@
+# macOS
 .DS_Store
+
+# Swift Package Manager
 .build/
 .swiftpm/
-DerivedData/
+
+# Xcode per-user and build files
 xcuserdata/
 *.xcuserstate
-Package.resolved
+DerivedData/
+build/
+
+# Per-developer signing (see App/Config/Local.xcconfig.example)
+Local.xcconfig
+
+# Python reference code and evaluation scripts
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editors
+.vscode/
+.idea/
+
+# Secrets 
+.env
+*.p12
+*.mobileprovision

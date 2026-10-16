@@ -1,0 +1,5 @@
+// Copy to Local.xcconfig (same folder) and fill in your own values. Do not commit.
+// Team ID: Xcode > Settings > Accounts > select your Apple Account > "Personal Team".
+// It is also shown under Signing & Capabilities after you pick the team once.
+DEVELOPMENT_TEAM = ABCDE12345
+SAFESPACE_BUNDLE_SUFFIX = yournetid

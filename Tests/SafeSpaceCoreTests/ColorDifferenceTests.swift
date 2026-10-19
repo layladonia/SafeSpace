@@ -63,14 +63,14 @@ final class ColorDifferenceTests: XCTestCase {
             let b = Double(sample.srgb8[2]) / 255.0
 
             let oklab = ColorSpace.sRGBToOKLab(r: r, g: g, b: b)
-            XCTAssertEqual(oklab.L, sample.oklab[0], accuracy: 0.001, "OKLab L for \(sample.srgb8)")
-            XCTAssertEqual(oklab.a, sample.oklab[1], accuracy: 0.001, "OKLab a for \(sample.srgb8)")
-            XCTAssertEqual(oklab.b, sample.oklab[2], accuracy: 0.001, "OKLab b for \(sample.srgb8)")
+            XCTAssertEqual(oklab.L, sample.oklab[0], accuracy: 0.000001, "OKLab L for \(sample.srgb8)")
+            XCTAssertEqual(oklab.a, sample.oklab[1], accuracy: 0.000001, "OKLab a for \(sample.srgb8)")
+            XCTAssertEqual(oklab.b, sample.oklab[2], accuracy: 0.000001, "OKLab b for \(sample.srgb8)")
 
             let cielab = ColorSpace.sRGBToCIELAB(r: r, g: g, b: b)
-            XCTAssertEqual(cielab.L, sample.cielab[0], accuracy: 0.001, "CIELAB L for \(sample.srgb8)")
-            XCTAssertEqual(cielab.a, sample.cielab[1], accuracy: 0.001, "CIELAB a for \(sample.srgb8)")
-            XCTAssertEqual(cielab.b, sample.cielab[2], accuracy: 0.001, "CIELAB b for \(sample.srgb8)")
+            XCTAssertEqual(cielab.L, sample.cielab[0], accuracy: 0.000001, "CIELAB L for \(sample.srgb8)")
+            XCTAssertEqual(cielab.a, sample.cielab[1], accuracy: 0.000001, "CIELAB a for \(sample.srgb8)")
+            XCTAssertEqual(cielab.b, sample.cielab[2], accuracy: 0.000001, "CIELAB b for \(sample.srgb8)")
         }
     }
 }

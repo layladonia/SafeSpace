@@ -1,114 +1,172 @@
 import Foundation
 import Observation
 import SwiftUI
+import UIKit
+import Darwin
+import SafeSpaceCore
 
-// MARK: - Placeholder types
-//
-// These mirror the vocabulary of the assessment.json contract (Task 2, owner C)
-// so the screens can be built now. When SafeSpaceCore publishes the real
-// contract types, delete these and import SafeSpaceCore instead.
-
-/// Assessment-level state from the contract: pending, completed, partial, failed.
+// Compatibility presentation wrappers for existing RoomList/RoomDetail views.
+// Only AssessmentRecord is encoded/exported, never these shell types.
 enum AssessmentState: String {
     case pending, completed, partial, failed
-
     var label: String {
         switch self {
-        case .pending: "Not analyzed yet"
-        case .completed: "Complete"
-        case .partial: "Partly complete"
-        case .failed: "Analysis failed"
+        case .pending: return "Not analyzed yet"
+        case .completed: return "Complete"
+        case .partial: return "Partly complete"
+        case .failed: return "Analysis failed"
         }
     }
 }
-
-/// Pipeline steps, in the order the report's architecture lists them.
 enum AnalysisComponent: String, CaseIterable, Identifiable {
-    case imageQuality = "image_quality"
-    case privacy = "privacy"
-    case colorPalette = "color_palette"
-    case visualContrast = "visual_contrast"
-
+    case imageQuality = "quality", privacy = "anonymization", colorPalette = "palette", visualContrast = "contrast"
     var id: String { rawValue }
-
     var title: String {
         switch self {
-        case .imageQuality: "Photo quality check"
-        case .privacy: "Hide faces and people"
-        case .colorPalette: "Color palette"
-        case .visualContrast: "Two-area color difference"
+        case .imageQuality: return "Photo quality check"
+        case .privacy: return "Hide faces and people"
+        case .colorPalette: return "Color palette"
+        case .visualContrast: return "Two-area color difference"
         }
     }
 }
-
-/// Component-level status. `pending` means the step has not run yet.
 enum ComponentStatus: String {
     case pending, completed, skipped, failed
-
     var label: String {
         switch self {
-        case .pending: "Not run yet"
-        case .completed: "Done"
-        case .skipped: "Skipped"
-        case .failed: "Failed"
+        case .pending: return "Not run yet"
+        case .completed: return "Done"
+        case .skipped: return "Skipped"
+        case .failed: return "Failed"
         }
     }
 }
-
 struct Assessment: Identifiable {
-    let id = UUID()
-    let createdAt = Date()
+    let id: UUID
+    let createdAt: Date
     var photos: [ImportedPhoto]
-    var state: AssessmentState = .pending
-    var components: [AnalysisComponent: ComponentStatus] =
-        Dictionary(uniqueKeysWithValues: AnalysisComponent.allCases.map { ($0, .pending) })
+    let record: AssessmentRecord
+    var state: AssessmentState {
+        switch record.overallState {
+        case .complete: return .completed
+        case .partial: return .partial
+        case .failed: return .failed
+        }
+    }
+    var components: [AnalysisComponent: ComponentStatus] {
+        [.imageQuality: status(record.steps.quality.status), .privacy: status(record.steps.anonymization.status),
+         .colorPalette: status(record.steps.palette.status), .visualContrast: status(record.steps.contrast.status)]
+    }
+    private func status(_ value: StepStatus) -> ComponentStatus {
+        switch value { case .completed: return .completed; case .skipped: return .skipped; case .failed: return .failed }
+    }
 }
-
 struct Room: Identifiable {
     let id = UUID()
     var name: String
     var assessments: [Assessment] = []
 }
-
-// MARK: - Store
-
-/// In-memory store for the shell. Nothing is written to disk yet; save/reopen
-/// (Task 14) replaces this with versioned JSON in the app sandbox.
 @MainActor
 @Observable
 final class AppModel {
     private(set) var rooms: [Room] = []
-
     @discardableResult
     func addRoom(named name: String) -> Room.ID {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let room = Room(name: trimmed.isEmpty ? "Untitled room" : trimmed)
-        rooms.append(room)
-        return room.id
+        rooms.append(room); return room.id
     }
-
-    func deleteRooms(at offsets: IndexSet) {
-        rooms.remove(atOffsets: offsets)
-    }
-
-    func room(id: Room.ID) -> Room? {
-        rooms.first { $0.id == id }
-    }
-
+    func deleteRooms(at offsets: IndexSet) { rooms.remove(atOffsets: offsets) }
+    func room(id: Room.ID) -> Room? { rooms.first { $0.id == id } }
     func assessment(id: Assessment.ID, in roomID: Room.ID) -> Assessment? {
         room(id: roomID)?.assessments.first { $0.id == id }
     }
-
-    @discardableResult
-    func addAssessment(to roomID: Room.ID, photos: [ImportedPhoto]) -> Assessment.ID? {
-        guard let index = rooms.firstIndex(where: { $0.id == roomID }) else { return nil }
-        let assessment = Assessment(photos: photos)
-        rooms[index].assessments.append(assessment)
-        return assessment.id
-    }
-
     func deleteAssessments(_ ids: Set<Assessment.ID>, in roomID: Room.ID) {
         guard let index = rooms.firstIndex(where: { $0.id == roomID }) else { return }
         rooms[index].assessments.removeAll { ids.contains($0.id) }
+    }
+
+    @discardableResult
+    func analyzeAndAddAssessment(to roomID: Room.ID, photo: ImportedPhoto) async throws -> Assessment.ID {
+        guard room(id: roomID) != nil else {
+            throw SafeSpaceError.validation([
+                "The room no longer exists."
+            ])
+        }
+
+        let bundle = Bundle.main
+
+        let version = bundle.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "dev"
+
+        let build = bundle.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String ?? "0"
+
+        var system = utsname()
+        uname(&system)
+
+        let machineCapacity = MemoryLayout.size(
+            ofValue: system.machine
+        )
+
+        let machine = withUnsafePointer(to: &system.machine) {
+            $0.withMemoryRebound(
+                to: CChar.self,
+                capacity: machineCapacity
+            ) {
+                String(cString: $0)
+            }
+        }
+
+        let producer = Producer(
+            kind: "app",
+            appVersion: "\(version) (\(build))",
+            coreVersion: SafeSpaceCore.version,
+            device: machine,
+            os: "iOS \(UIDevice.current.systemVersion)"
+        )
+
+        // Diagnostic comparison with the existing alternative.
+        // This is not a guarantee that every accent will be represented.
+        var options = PipelineOptions()
+        options.paletteMethod = .kmeansPP
+        options.paletteParams.minShare = 0.005
+
+        let output = try await AssessmentPipeline.run(
+            imageData: photo.originalData,
+            source: photo.source == .camera ? .camera : .library,
+            roomID: roomID.uuidString.lowercased(),
+            producer: producer,
+            options: options
+        )
+
+        try Task.checkCancellation()
+
+        guard let index = rooms.firstIndex(where: {
+            $0.id == roomID
+        }),
+        let id = UUID(
+            uuidString: output.record.assessmentId
+        ) else {
+            throw SafeSpaceError.validation([
+                "The room was removed or the result ID is invalid."
+            ])
+        }
+
+        var displayPhoto = photo
+        displayPhoto.discardOriginalData()
+
+        let assessment = Assessment(
+            id: id,
+            createdAt: output.record.createdAt,
+            photos: [displayPhoto],
+            record: output.record
+        )
+
+        rooms[index].assessments.append(assessment)
+
+        return id
     }
 }

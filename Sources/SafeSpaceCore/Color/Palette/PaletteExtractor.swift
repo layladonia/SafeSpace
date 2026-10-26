@@ -85,7 +85,7 @@ private enum PaletteEngine {
         guard mask.width == image.width, mask.height == image.height,
               p.space == "oklab", (1...8).contains(p.kInitial), (1...1000).contains(p.maxIterations),
               p.mergeDeltaEOk.isFinite, p.mergeDeltaEOk >= 0,
-              p.minShare.isFinite, (0..<1).contains(p.minShare), p.sampleStride == 1 else {
+              p.minShare.isFinite, (0..<1).contains(p.minShare), p.sampleStride >= 1 else {
             throw PaletteExtractionError.invalidParameters
         }
         try Task.checkCancellation()
@@ -99,10 +99,21 @@ private enum PaletteEngine {
         // Sorted packed sRGB keys define all reduction/tie order. No Dictionary
         // traversal contributes to numerical calculations. Histogramming is exact.
         let keys = histogram.keys.sorted()
-        let points: [Point] = keys.map { key in
+        func point(_ key: UInt32, _ count: Int) -> Point {
             let color = ColorSpace.sRGBToOKLab(r: Double((key >> 16) & 255) / 255,
                 g: Double((key >> 8) & 255) / 255, b: Double(key & 255) / 255)
-            return Point(rgb: key, value: Vector(color.L, color.a, color.b), count: histogram[key]!)
+            return Point(rgb: key, value: Vector(color.L, color.a, color.b), count: count)
+        }
+        let allPoints = keys.map { point($0, histogram[$0]!) }
+        // sample_stride > 1: cluster on every Nth pixel, then assign every eligible color to its
+        // nearest center below, so shares and the label map still count all eligible pixels.
+        var points = allPoints
+        if p.sampleStride > 1 {
+            var sampled: [UInt32: Int] = [:]
+            for i in stride(from: 0, to: mask.eligible.count, by: p.sampleStride) where mask.eligible[i] {
+                sampled[key(image.rgba, i), default: 0] += 1
+            }
+            if !sampled.isEmpty { points = sampled.keys.sorted().map { point($0, sampled[$0]!) } }
         }
         let k = min(p.kInitial, points.count)
         var labels: [Int]
@@ -172,6 +183,10 @@ private enum PaletteEngine {
             labels = Array(repeating: 0, count: points.count)
             for b in boxes.indices { for i in boxes[b] { labels[i] = b } }
             centers = means(points, labels, boxes.count).0
+        }
+        if p.sampleStride > 1 {
+            points = allPoints
+            labels = points.map { nearest($0.value, centers) }
         }
         // Remove empty clusters and renumber in original-center order.
         var stats = means(points, labels, centers.count)

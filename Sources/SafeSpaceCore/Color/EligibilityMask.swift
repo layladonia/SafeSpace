@@ -38,7 +38,6 @@ public struct EligibilityMask: Sendable, Equatable {
             guard let c = CGContext(data: raw.baseAddress, width: w, height: h,
                                     bitsPerComponent: 8, bytesPerRow: w,
                                     space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0) else { return false }
-            c.translateBy(x: 0, y: CGFloat(h)); c.scaleBy(x: 1, y: -1)
             c.interpolationQuality = .none
             c.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h))); return true
         }

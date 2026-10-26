@@ -31,6 +31,34 @@ final class PaletteImageOrientationTests: XCTestCase {
         XCTAssertEqual(output.image.width, 1024)
         XCTAssertEqual(output.image.height, 1)
         XCTAssertEqual(output.provenance.original.width, 2048)
-        XCTAssertEqual(output.provenance.workingCopy.resizeMethod, "bilinear_gamma_encoded")
+        XCTAssertEqual(output.provenance.workingCopy.resizeMethod, "area_average_gamma_encoded")
+    }
+    func testShrinkAveragesEverySourcePixel() throws {
+        // 1-pixel black/white checkerboard; a 2x shrink must give mid-gray, not sampled black or white
+        var rgba: [UInt8] = []
+        for y in 0..<4 {
+            for x in 0..<2048 { rgba += (x + y) % 2 == 0 ? [0, 0, 0, 255] : [255, 255, 255, 255] }
+        }
+        let output = try ImageLoader.load(data: SRGBImage(width: 2048, height: 4, rgba: rgba).pngData(), source: .library)
+        XCTAssertEqual(output.image.width, 1024)
+        XCTAssertEqual(output.image.height, 2)
+        let red = stride(from: 0, to: output.image.rgba.count, by: 4).map { output.image.rgba[$0] }
+        XCTAssertEqual(Set(red), [128])
+    }
+    func testOutOfRangeOrientationIsTreatedAsUpright() {
+        // ImageIO rewrites 0 as 1 when saving, so this checks the mapping directly
+        XCTAssertEqual(ImageLoader.uprightOrientation(0), 1)
+        XCTAssertEqual(ImageLoader.uprightOrientation(9), 1)
+        XCTAssertEqual(ImageLoader.uprightOrientation(nil), 1)
+        XCTAssertEqual(ImageLoader.uprightOrientation(6), 6)
+    }
+    func testPixelBoundsClampBoxesPastTheEdge() {
+        let past = NormalizedRect(x: 0.8, y: 0.5, width: 0.2000001, height: 0.6)
+        XCTAssertTrue(past.pixelBounds(width: 10, height: 10) == (8, 5, 10, 10))
+        let empty = NormalizedRect(x: 0.5, y: 0.5, width: -0.2, height: 0.1)
+        let bounds = empty.pixelBounds(width: 10, height: 10)
+        XCTAssertEqual(bounds.x0, bounds.x1)
+        let mask = EligibilityMask.all(width: 10, height: 10).excluding([past, empty])
+        XCTAssertEqual(mask.eligibleCount, 100 - 10)
     }
 }

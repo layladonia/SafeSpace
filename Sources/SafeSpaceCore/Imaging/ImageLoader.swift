@@ -8,6 +8,12 @@ public struct WorkingCopy: Sendable {
     public let provenance: ImageProvenance
 }
 public enum ImageLoader {
+    /// EXIF orientation to apply. Missing or out-of-range values (0 is common) mean "not set",
+    /// which EXIF defines as upright.
+    static func uprightOrientation(_ tagged: Int?) -> Int {
+        guard let tagged, (1...8).contains(tagged) else { return 1 }
+        return tagged
+    }
     public static func load(url: URL, maxLongSide: Int = 1024) throws -> WorkingCopy {
         try load(data: Data(contentsOf: url), source: .file, maxLongSide: maxLongSide)
     }
@@ -15,13 +21,13 @@ public enum ImageLoader {
         try Task.checkCancellation()
         guard maxLongSide > 0, !data.isEmpty,
               let input = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
-              let image = CGImageSourceCreateImageAtIndex(input, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+              let image = CGImageSourceCreateImageAtIndex(input, 0, [kCGImageSourceShouldCache: false] as CFDictionary)
         else { throw SafeSpaceError.load(.unreadableData) }
         let w = image.width, h = image.height
         guard w > 0 && h > 0 && w <= 100_000_000 / h else { throw SafeSpaceError.load(.emptyImage) }
         let props = CGImageSourceCopyPropertiesAtIndex(input, 0, nil) as? [CFString: Any] ?? [:]
-        let orientation = (props[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
-        guard (1...8).contains(orientation), let srgb = CGColorSpace(name: CGColorSpace.sRGB) else {
+        let orientation = uprightOrientation((props[kCGImagePropertyOrientation] as? NSNumber)?.intValue)
+        guard let srgb = CGColorSpace(name: CGColorSpace.sRGB) else {
             throw SafeSpaceError.load(.unsupportedColorSpace)
         }
         let format: String
@@ -39,14 +45,13 @@ public enum ImageLoader {
         else { profile = hasProfile ? "other" : "untagged" }
 
         // Color-manage into full-resolution gamma-encoded sRGB, then perform our
-        // explicitly recorded bilinear resize. This avoids a hidden ImageIO resize kernel.
+        // explicitly recorded area-average resize. This avoids a hidden ImageIO resize kernel.
         var raw = [UInt8](repeating: 0, count: w * h * 4)
         let rendered = raw.withUnsafeMutableBytes { bytes -> Bool in
             guard let context = CGContext(data: bytes.baseAddress, width: w, height: h,
                 bitsPerComponent: 8, bytesPerRow: w * 4, space: srgb,
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
             else { return false }
-            context.translateBy(x: 0, y: CGFloat(h)); context.scaleBy(x: 1, y: -1)
             context.interpolationQuality = .none
             context.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
             return true
@@ -79,20 +84,25 @@ public enum ImageLoader {
             }
             return (sy * w + sx) * 4
         }
+        // Each output pixel is the mean of every upright source pixel its footprint covers,
+        // so a large shrink uses the whole photo instead of sampling points. Integer sums keep
+        // it exact and deterministic; without a resize each footprint is a single pixel.
         for y in 0..<outH {
             if y % 32 == 0 { try Task.checkCancellation() }
-            let fy = Double(y) * Double(uprightH - 1) / Double(max(outH - 1, 1))
-            let y0 = Int(fy), y1 = min(y0 + 1, uprightH - 1), dy = fy - Double(y0)
+            let sy0 = y * uprightH / outH, sy1 = max(sy0 + 1, (y + 1) * uprightH / outH)
             for x in 0..<outW {
-                let fx = Double(x) * Double(uprightW - 1) / Double(max(outW - 1, 1))
-                let x0 = Int(fx), x1 = min(x0 + 1, uprightW - 1), dx = fx - Double(x0)
-                let p00 = sourceOffset(x0, y0), p10 = sourceOffset(x1, y0)
-                let p01 = sourceOffset(x0, y1), p11 = sourceOffset(x1, y1)
-                for c in 0..<4 {
-                    let top = Double(raw[p00 + c]) * (1 - dx) + Double(raw[p10 + c]) * dx
-                    let bottom = Double(raw[p01 + c]) * (1 - dx) + Double(raw[p11 + c]) * dx
-                    output[(y * outW + x) * 4 + c] = UInt8(min(255, max(0, (top * (1 - dy) + bottom * dy).rounded())))
+                let sx0 = x * uprightW / outW, sx1 = max(sx0 + 1, (x + 1) * uprightW / outW)
+                var sums = (0, 0, 0, 0)
+                for sy in sy0..<sy1 {
+                    for sx in sx0..<sx1 {
+                        let p = sourceOffset(sx, sy)
+                        sums.0 += Int(raw[p]); sums.1 += Int(raw[p + 1])
+                        sums.2 += Int(raw[p + 2]); sums.3 += Int(raw[p + 3])
+                    }
                 }
+                let n = (sy1 - sy0) * (sx1 - sx0), o = (y * outW + x) * 4
+                output[o] = UInt8((sums.0 + n / 2) / n); output[o + 1] = UInt8((sums.1 + n / 2) / n)
+                output[o + 2] = UInt8((sums.2 + n / 2) / n); output[o + 3] = UInt8((sums.3 + n / 2) / n)
             }
         }
         return WorkingCopy(image: .init(width: outW, height: outH, rgba: output), provenance: .init(
@@ -100,6 +110,6 @@ public enum ImageLoader {
             original: .init(format: format, colorSpace: profile, width: w, height: h,
                             exifOrientation: orientation, retained: source == .file),
             workingCopy: .init(colorSpace: "srgb", width: outW, height: outH, maxLongSide: maxLongSide,
-                               resizeMethod: "bilinear_gamma_encoded", orientationApplied: true, gamutMapping: "clip")))
+                               resizeMethod: "area_average_gamma_encoded", orientationApplied: true, gamutMapping: "clip")))
     }
 }

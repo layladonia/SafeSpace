@@ -106,4 +106,72 @@ final class PaletteEngineTests: XCTestCase {
         XCTAssertEqual(try output(input, params: params).result, expected)
     }
 
+    // MARK: Task 7 "done when": merge, drop and rerun rules
+
+    /// Smooth gradient with no natural clusters, so a change in seeding changes the palette.
+    private func gradient(width: Int = 64, height: Int = 48) -> SRGBImage {
+        var rgba: [UInt8] = []
+        for y in 0..<height {
+            for x in 0..<width { rgba += [UInt8(x * 255 / (width - 1)), UInt8(y * 255 / (height - 1)), 128, 255] }
+        }
+        return SRGBImage(width: width, height: height, rgba: rgba)
+    }
+    func testTenRerunsOfGradientAreBitIdenticalIncludingLabelMap() throws {
+        let input = gradient(), first = try output(input)
+        let expected = try AssessmentJSON.encoder().encode(first.result)
+        for run in 2...10 {
+            let next = try output(input)
+            XCTAssertEqual(try AssessmentJSON.encoder().encode(next.result), expected, "run \(run)")
+            XCTAssertEqual(next.labelMap, first.labelMap, "run \(run)")
+        }
+    }
+    func testCloseColorsMergeIntoTheirMean() throws {
+        // About 0.006 apart in OKLab, under the 0.04 merge threshold
+        let input = image(Array(repeating: [200, 100, 100], count: 60) + Array(repeating: [203, 100, 100], count: 40))
+        let result = try output(input).result
+        XCTAssertEqual(result.colors.count, 1)
+        XCTAssertEqual(result.colors[0].pixelCount, 100)
+        let low = ColorSpace.sRGBToOKLab(r: 200 / 255, g: 100 / 255, b: 100 / 255)
+        let high = ColorSpace.sRGBToOKLab(r: 203 / 255, g: 100 / 255, b: 100 / 255)
+        XCTAssertEqual(result.colors[0].oklab.l, 0.6 * low.L + 0.4 * high.L, accuracy: 1e-12)
+    }
+    func testDistinctColorsAreKeptAndRanked() throws {
+        let input = image(Array(repeating: [255, 0, 0], count: 40) + Array(repeating: [0, 128, 0], count: 30)
+            + Array(repeating: [0, 0, 255], count: 20) + Array(repeating: [255, 255, 255], count: 10))
+        let result = try output(input).result
+        XCTAssertEqual(result.colors.map(\.hex), ["#FF0000", "#008000", "#0000FF", "#FFFFFF"])
+        XCTAssertEqual(result.colors.map(\.id), ["c1", "c2", "c3", "c4"])
+        XCTAssertEqual(result.colors.map(\.share), [0.4, 0.3, 0.2, 0.1])
+        XCTAssertEqual(result.droppedShare, 0)
+    }
+    func testDefaultMinShareDropsColorsUnderOnePercent() throws {
+        let input = image(Array(repeating: [255, 0, 0], count: 995) + Array(repeating: [0, 0, 255], count: 5))
+        let out = try output(input)
+        XCTAssertEqual(out.result.colors.map(\.hex), ["#FF0000"])
+        XCTAssertEqual(out.result.droppedShare, 0.005, accuracy: 1e-12)
+        XCTAssertEqual(Array(out.labelMap.suffix(5)), [255, 255, 255, 255, 255])
+    }
+    func testResultInvariantsOnGradient() throws {
+        let input = gradient(), out = try output(input), result = out.result
+        XCTAssertTrue((1...PaletteParams.v1.kInitial).contains(result.colors.count))
+        XCTAssertEqual(result.colors.map(\.share), result.colors.map(\.share).sorted(by: >))
+        XCTAssertEqual(result.colors.map(\.share).reduce(0, +) + result.droppedShare, 1, accuracy: 1e-9)
+        for (index, color) in result.colors.enumerated() {
+            XCTAssertEqual(color.rank, index + 1)
+            XCTAssertEqual(color.id, "c\(index + 1)")
+            XCTAssertEqual(color.hex, String(format: "#%02X%02X%02X", Int(color.srgb8[0]), Int(color.srgb8[1]), Int(color.srgb8[2])))
+            XCTAssertEqual(color.oklch.h == nil, color.oklch.c < 0.002)
+            XCTAssertEqual(out.labelMap.filter { $0 == UInt8(index) }.count, color.pixelCount)
+        }
+    }
+    func testSampleStrideStillCountsEveryPixel() throws {
+        let input = gradient()
+        var params = PaletteParams.v1; params.sampleStride = 3
+        let out = try output(input, params: params), result = out.result
+        XCTAssertEqual(result.eligiblePixelCount, input.width * input.height)
+        XCTAssertEqual(result.colors.map(\.share).reduce(0, +) + result.droppedShare, 1, accuracy: 1e-9)
+        XCTAssertEqual(out.labelMap.filter { $0 == 255 }.count,
+                       result.eligiblePixelCount - result.colors.map(\.pixelCount).reduce(0, +))
+        XCTAssertEqual(try output(input, params: params).result, result)
+    }
 }

@@ -3,20 +3,14 @@ import PackageDescription
 
 let package = Package(
     name: "SafeSpace",
-    platforms: [.macOS(.v13), .iOS(.v16)],
+    platforms: [.macOS(.v13), .iOS(.v17)],
     products: [
         .library(name: "SafeSpaceCore", targets: ["SafeSpaceCore"]),
-        .executable(name: "safespace-cli", targets: ["safespace-cli"]),
+        .executable(name: "safespace-cli", targets: ["safespace-cli"])
     ],
     targets: [
-        .target(name: "CStbImage"),
-        .target(
-            name: "SafeSpaceCore", 
-            dependencies: [
-                "CStbImage"
-            ]
-        ),
+        .target(name: "SafeSpaceCore"),
         .executableTarget(name: "safespace-cli", dependencies: ["SafeSpaceCore"]),
-        .testTarget(name: "SafeSpaceCoreTests", dependencies: ["SafeSpaceCore"]),
+        .testTarget(name: "SafeSpaceCoreTests", dependencies: ["SafeSpaceCore"])
     ]
 )

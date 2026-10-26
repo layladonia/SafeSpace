@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		0BBE2891308BCD5F001338D9 /* SafeSpaceCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0BBE2890308BCD5F001338D9 /* SafeSpaceCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		710B26C1307D705400C6B395 /* SafeSpace.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SafeSpace.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,16 +27,25 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0BBE2891308BCD5F001338D9 /* SafeSpaceCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0BBE288E308BCC98001338D9 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		710B26B8307D705400C6B395 = {
 			isa = PBXGroup;
 			children = (
 				710B26C3307D705400C6B395 /* SafeSpace */,
+				0BBE288E308BCC98001338D9 /* Frameworks */,
 				710B26C2307D705400C6B395 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -65,6 +78,7 @@
 			);
 			name = SafeSpace;
 			packageProductDependencies = (
+				0BBE2890308BCD5F001338D9 /* SafeSpaceCore */,
 			);
 			productName = SafeSpace;
 			productReference = 710B26C1307D705400C6B395 /* SafeSpace.app */;
@@ -94,6 +108,9 @@
 			);
 			mainGroup = 710B26B8307D705400C6B395;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				0BBE288F308BCD5F001338D9 /* XCLocalSwiftPackageReference "../../../SafeSpace" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 710B26C2307D705400C6B395 /* Products */;
 			projectDirPath = "";
@@ -246,7 +263,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7BRFYCSV2L;
+				DEVELOPMENT_TEAM = CKWZ36MNDY;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -290,7 +307,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7BRFYCSV2L;
+				DEVELOPMENT_TEAM = CKWZ36MNDY;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -349,6 +366,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		0BBE288F308BCD5F001338D9 /* XCLocalSwiftPackageReference "../../../SafeSpace" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../../SafeSpace;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0BBE2890308BCD5F001338D9 /* SafeSpaceCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SafeSpaceCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 710B26B9307D705400C6B395 /* Project object */;
 }

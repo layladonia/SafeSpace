@@ -1,0 +1,7 @@
+// Committed. Shared by everyone on the team.
+// Each developer's team ID and bundle suffix come from Local.xcconfig (gitignored),
+// so personal signing settings never cause merge conflicts in project.pbxproj.
+#include? "Local.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = edu.tamu.safespace.$(SAFESPACE_BUNDLE_SUFFIX)
+CODE_SIGN_STYLE = Automatic

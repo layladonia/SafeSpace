@@ -128,11 +128,8 @@ final class AppModel {
             os: "iOS \(UIDevice.current.systemVersion)"
         )
 
-        // Diagnostic comparison with the existing alternative.
-        // This is not a guarantee that every accent will be represented.
-        var options = PipelineOptions()
-        options.paletteMethod = .kmeansPP
-        options.paletteParams.minShare = 0.005
+        // Contract defaults (PaletteParams.v1), the same ones the CLI and tests use.
+        let options = PipelineOptions()
 
         let output = try await AssessmentPipeline.run(
             imageData: photo.originalData,

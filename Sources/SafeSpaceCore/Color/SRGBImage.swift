@@ -21,11 +21,15 @@ public struct NormalizedRect: Codable, Sendable, Equatable, Hashable {
     public init(x: Double, y: Double, width: Double, height: Double) {
         self.x = x; self.y = y; self.width = width; self.height = height
     }
+    /// Contract §4.8 bounds (x1, y1 exclusive), clamped to the image. A box that runs past an
+    /// edge (detectors return these) is cut at the edge; an empty or non-finite one gives x0 == x1.
     public func pixelBounds(width w: Int, height h: Int) -> (x0: Int, y0: Int, x1: Int, y1: Int) {
-        precondition(x.isFinite && y.isFinite && width.isFinite && height.isFinite)
-        precondition(x >= 0 && y >= 0 && width > 0 && height > 0 && x + width <= 1 && y + height <= 1)
-        return (Int(floor(x * Double(w))), Int(floor(y * Double(h))),
-                min(w, Int(ceil((x + width) * Double(w)))), min(h, Int(ceil((y + height) * Double(h)))))
+        guard x.isFinite && y.isFinite && width.isFinite && height.isFinite else { return (0, 0, 0, 0) }
+        func clamp(_ v: Double, _ limit: Int) -> Int { Int(min(max(v, 0), Double(limit))) }
+        let x0 = clamp(floor(x * Double(w)), w), y0 = clamp(floor(y * Double(h)), h)
+        let x1 = max(x0, clamp(ceil((x + width) * Double(w)), w))
+        let y1 = max(y0, clamp(ceil((y + height) * Double(h)), h))
+        return (x0, y0, x1, y1)
     }
 }
 enum PNGCodec {

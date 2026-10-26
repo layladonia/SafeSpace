@@ -15,9 +15,7 @@ The palette summarizes colors. It is not the planned two-region contrast measure
 In AppModel.analyzeAndAddAssessment:
 
 ```swift
-var options = PipelineOptions()
-options.paletteMethod = .kmeansPP
-options.paletteParams.minShare = 0.005
+let options = PipelineOptions()
 
 let output = try await AssessmentPipeline.run(
     imageData: photo.originalData,
@@ -37,7 +35,7 @@ let output = try await AssessmentPipeline.run(
 | Seed | 482 |
 | Maximum Lloyd iterations | 50 |
 | Merge distance | 0.04, Euclidean OKLab |
-| Minimum retained share | 0.005 = 0.5% |
+| Minimum retained share | 0.01 = 1% (contract default) |
 | Sample stride | 1 |
 
 The 0.5% threshold is an explicit app-side override. The supplied shared PaletteParams.v1 default remains 0.01 (1%). Other consumers must pass the same options for an app/CLI comparison. The developer probe as originally supplied uses pipeline defaults; update its options to the same values before comparing it with the app.
@@ -123,13 +121,13 @@ Core paths are relative to Sources/SafeSpaceCore/.
 | Tests/SafeSpaceCoreTests/PaletteEngineTests.swift | Engine/record regression tests |
 | Tests/SafeSpaceCoreTests/PaletteImageOrientationTests.swift | EXIF orientation and resize tests |
 | Tests/SafeSpaceCoreTests/PaletteAccentTests.swift | Synthetic 5% red-accent test |
-| tools/PaletteContractProbe | Optional real-image ten-run verification tool |
+| Sources/safespace-cli/main.swift | Interim CLI: prints palettes and checks `--reruns N` are bit-identical |
 
 Keep Core files in the package target, not directly in the app target. App-only test files from the abandoned implementation must not remain in the Core test target.
 
 ## Preprocessing and algorithm
 
-ImageLoader decodes with ImageIO, color-manages into full-resolution gamma-encoded sRGB, unpremultiplies to straight RGBA, applies EXIF orientation mapping, and uses explicit bilinear interpolation to resize without upscaling to a maximum long side of 1024.
+ImageLoader decodes with ImageIO, color-manages into full-resolution gamma-encoded sRGB, unpremultiplies to straight RGBA, applies EXIF orientation mapping (a missing or out-of-range tag, such as 0, is treated as upright), and uses an explicit area-average resize (every source pixel counts) without upscaling to a maximum long side of 1024. Row 0 of the working copy is the top of the photo; normalized rects, the label map and stored PNGs all rely on that.
 
 It replaces the stb_image path. Package.swift removes the CStbImage dependency and uses iOS 17+. Review any remaining imports before deleting legacy third-party files.
 
@@ -235,26 +233,20 @@ Also run the existing suite and distinguish unrelated baseline failures. The leg
 
 ### Repeatability and app/probe comparison
 
-Use the SAME options as the app in every comparison, including minShare 0.005:
+Use the SAME options as the app in every comparison (the PaletteParams.v1 defaults):
 
 ```swift
-var options = PipelineOptions()
-options.paletteMethod = .kmeansPP
-options.paletteParams.minShare = 0.005
+let options = PipelineOptions()
 ```
 
-In tools/PaletteContractProbe/Sources/palette-contract-probe/Probe.swift, pass those options to each AssessmentPipeline.run call; the original probe omitted options and therefore used the 1% default.
-
-Run:
+Run the ten-rerun check on one photo or a folder (exit code 2 if any rerun differs):
 
 ```bash
-swift run --package-path tools/PaletteContractProbe \
-  palette-contract-probe \
-  /absolute/path/to/photo.heic \
-  /absolute/path/to/output
+swift run -c release safespace-cli Datasets/room-photos/images --reruns 10
+swift run -c release safespace-cli Datasets/room-photos/images --reruns 10 --method median_cut
 ```
 
-The probe is a developer verification tool, not the complete planned CLI/CSV implementation. Compare steps.palette.result, not whole records: IDs, dates, durations, and producer fields legitimately differ. Identical original bytes, configuration, and code version are required. A fresh camera capture or recompressed export is not identical input.
+This is an interim developer check, not the complete planned CLI/CSV implementation (Task 12). Compare steps.palette.result, not whole records: IDs, dates, durations, and producer fields legitimately differ. Identical original bytes, configuration, and code version are required. A fresh camera capture or recompressed export is not identical input.
 
 Seeded code alone is not proof of cross-platform equality. Record ten-run and app/probe results on the actual platforms.
 
@@ -262,7 +254,7 @@ Seeded code alone is not proof of cross-platform equality. Record ten-run and ap
 
 - [ ] Review shared-file conflicts and proposed contract decisions.
 - [ ] Confirm originalData, not preview, reaches Core.
-- [ ] Confirm app AND comparison tool use kmeans_pp/min_share 0.005.
+- [ ] Confirm app AND comparison tool use the default options (kmeans_pp, min_share 0.01).
 - [ ] Inspect actual JSON parameters rather than assuming defaults.
 - [ ] Review orientation, color profiles, channel order, and alpha/mask handling.
 - [ ] Review initialization, reduction order, ties, merging, filtering, ranks, and labels.

@@ -17,6 +17,10 @@ public enum ImageLoader {
         var height: Int
         var orientation: Int?
         var iccProfile: [UInt8]?
+        /// True when the backend already color-managed `raw` into sRGB itself (e.g. by letting
+        /// CoreGraphics' CMM do the conversion at decode time), so `process` should skip its
+        /// own ICC-matrix conversion/rejection below.
+        var alreadySRGB: Bool = false
     }
 
     /// EXIF orientation to apply. Missing or out-of-range values (0 is common) mean "not set",
@@ -64,7 +68,8 @@ public enum ImageLoader {
         // stb_image returns straight (non-premultiplied) alpha for both PNG and JPEG
         // (JPEG has no alpha channel; stb_image fills it opaque).
         let raw = Array(UnsafeBufferPointer(start: decoded, count: w * h * 4))
-        return RawDecode(raw: raw, width: w, height: h, orientation: metadata.orientation, iccProfile: metadata.iccProfile)
+        return RawDecode(raw: raw, width: w, height: h, orientation: metadata.orientation,
+                          iccProfile: metadata.iccProfile, alreadySRGB: false)
     }
     #endif
 
@@ -75,31 +80,37 @@ public enum ImageLoader {
         var raw = decoded.raw
         let orientation = uprightOrientation(decoded.orientation)
         let profile = colorProfile(iccProfile: decoded.iccProfile)
-        switch profile {
-        case .displayP3:
-            for p in stride(from: 0, to: raw.count, by: 4) {
-                let converted = ColorSpace.displayP3ToSRGB(r: Double(raw[p]) / 255.0,
-                                                            g: Double(raw[p + 1]) / 255.0,
-                                                            b: Double(raw[p + 2]) / 255.0)
-                raw[p] = UInt8((converted.r * 255.0).rounded())
-                raw[p + 1] = UInt8((converted.g * 255.0).rounded())
-                raw[p + 2] = UInt8((converted.b * 255.0).rounded())
+        // CoreImage's backend already color-manages into sRGB itself via CoreGraphics' CMM at
+        // decode time (ImageLoader+CoreImage.swift), so `profile` below is provenance labeling
+        // only on that path. Only a backend without a system CMM (stb) needs this hand-rolled
+        // ICC-matrix conversion/rejection to happen here.
+        if !decoded.alreadySRGB {
+            switch profile {
+            case .displayP3:
+                for p in stride(from: 0, to: raw.count, by: 4) {
+                    let converted = ColorSpace.displayP3ToSRGB(r: Double(raw[p]) / 255.0,
+                                                                g: Double(raw[p + 1]) / 255.0,
+                                                                b: Double(raw[p + 2]) / 255.0)
+                    raw[p] = UInt8((converted.r * 255.0).rounded())
+                    raw[p + 1] = UInt8((converted.g * 255.0).rounded())
+                    raw[p + 2] = UInt8((converted.b * 255.0).rounded())
+                }
+            case .adobeRGB:
+                for p in stride(from: 0, to: raw.count, by: 4) {
+                    let converted = ColorSpace.adobeRGBToSRGB(r: Double(raw[p]) / 255.0,
+                                                               g: Double(raw[p + 1]) / 255.0,
+                                                               b: Double(raw[p + 2]) / 255.0)
+                    raw[p] = UInt8((converted.r * 255.0).rounded())
+                    raw[p + 1] = UInt8((converted.g * 255.0).rounded())
+                    raw[p + 2] = UInt8((converted.b * 255.0).rounded())
+                }
+            case .other:
+                // No ICC engine here: a tagged profile we can't identify as sRGB, Display P3, or
+                // Adobe RGB would be silently misinterpreted, so refuse to analyze it rather than guess.
+                throw SafeSpaceError.load(.unsupportedColorSpace)
+            case .srgb, .untagged:
+                break
             }
-        case .adobeRGB:
-            for p in stride(from: 0, to: raw.count, by: 4) {
-                let converted = ColorSpace.adobeRGBToSRGB(r: Double(raw[p]) / 255.0,
-                                                           g: Double(raw[p + 1]) / 255.0,
-                                                           b: Double(raw[p + 2]) / 255.0)
-                raw[p] = UInt8((converted.r * 255.0).rounded())
-                raw[p + 1] = UInt8((converted.g * 255.0).rounded())
-                raw[p + 2] = UInt8((converted.b * 255.0).rounded())
-            }
-        case .other:
-            // No ICC engine here: a tagged profile we can't identify as sRGB, Display P3, or
-            // Adobe RGB would be silently misinterpreted, so refuse to analyze it rather than guess.
-            throw SafeSpaceError.load(.unsupportedColorSpace)
-        case .srgb, .untagged:
-            break
         }
 
         let swapped = (5...8).contains(orientation)

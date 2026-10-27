@@ -1,7 +1,5 @@
 import Foundation
-import CoreGraphics
-import ImageIO
-import UniformTypeIdentifiers
+import CStbImage
 
 public struct SRGBImage: Sendable, Equatable {
     public let width: Int
@@ -34,18 +32,24 @@ public struct NormalizedRect: Codable, Sendable, Equatable, Hashable {
 }
 enum PNGCodec {
     static func encode(width: Int, height: Int, bytes: [UInt8], gray: Bool) -> Data {
-        let data = Data(bytes)
-        let space = gray ? CGColorSpaceCreateDeviceGray() : CGColorSpace(name: CGColorSpace.sRGB)!
-        let bits = gray ? CGBitmapInfo(rawValue: 0) : CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue)
-        let provider = CGDataProvider(data: data as CFData)!
-        let image = CGImage(width: width, height: height, bitsPerComponent: 8,
-                            bitsPerPixel: gray ? 8 : 32, bytesPerRow: width * (gray ? 1 : 4),
-                            space: space, bitmapInfo: bits, provider: provider,
-                            decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
-        let output = NSMutableData()
-        let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil)!
-        CGImageDestinationAddImage(destination, image, nil)
-        precondition(CGImageDestinationFinalize(destination), "PNG encoding failed")
-        return output as Data
+        let comp = gray ? 1 : 4
+        let buffer = PNGWriteBuffer()
+        let context = Unmanaged.passUnretained(buffer).toOpaque()
+        bytes.withUnsafeBytes { raw in
+            _ = stbi_write_png_to_func(pngWriteCallback, context, Int32(width), Int32(height),
+                                        Int32(comp), raw.baseAddress, Int32(width * comp))
+        }
+        precondition(!buffer.data.isEmpty, "PNG encoding failed")
+        return buffer.data
     }
+}
+
+private final class PNGWriteBuffer {
+    var data = Data()
+}
+
+private func pngWriteCallback(_ context: UnsafeMutableRawPointer?, _ data: UnsafeMutableRawPointer?, _ size: Int32) {
+    guard let context, let data, size > 0 else { return }
+    let buffer = Unmanaged<PNGWriteBuffer>.fromOpaque(context).takeUnretainedValue()
+    buffer.data.append(contentsOf: UnsafeRawBufferPointer(start: data, count: Int(size)))
 }

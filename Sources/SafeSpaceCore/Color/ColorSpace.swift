@@ -82,6 +82,26 @@ public enum ColorSpace {
         )
     }
 
+    /// For photos tagged with the Adobe RGB (1998) working-space profile (common out of
+    /// desktop photo editors). Adobe RGB uses a pure 2.19921875 gamma, not the sRGB piecewise
+    /// curve, so its linearization differs from `displayP3ToSRGB`'s.
+    public static func adobeRGBToSRGB(r: Double, g: Double, b: Double) -> (r: Double, g: Double, b: Double) {
+        let gamma = 2.19921875
+        let rL = pow(max(r, 0), gamma)
+        let gL = pow(max(g, 0), gamma)
+        let bL = pow(max(b, 0), gamma)
+
+        let rOut = 1.398355744 * rL - 0.398355744 * gL + 0.0 * bL
+        let gOut = 0.0 * rL + 1.0 * gL + 0.0 * bL
+        let bOut = 0.0 * rL - 0.0429289893 * gL + 1.0429289893 * bL
+
+        return (
+            r: linearToSRGB(min(max(rOut, 0.0), 1.0)),
+            g: linearToSRGB(min(max(gOut, 0.0), 1.0)),
+            b: linearToSRGB(min(max(bOut, 0.0), 1.0))
+        )
+    }
+
     private static func sRGBToLinear(_ value: Double) -> Double {
         if value <= 0.04045 {
             return value / 12.92

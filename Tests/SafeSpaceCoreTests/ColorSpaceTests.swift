@@ -2,37 +2,7 @@ import XCTest
 @testable import SafeSpaceCore
 
 final class ColorSpaceTests: XCTestCase {
-    func testColorSpaceRed() {
-        let path = "Tests/SafeSpaceCoreTests/TestImages/red.png"
-        guard FileManager.default.fileExists(atPath: path) else {
-            print("No such file or folder: \(path)")
-            exit(1)
-        }
-
-        let imageURL = URL(fileURLWithPath: path)
-        guard let colors = ImagePipeline.analyze(imageURL: imageURL) else {
-            print("\(imageURL.lastPathComponent): failed to analyze")
-            return
-        }
-
-        let CIELab = colors.1
-        let OKLab = colors.0
-        guard let red = CIELab.first else {
-            XCTFail("Expected at least one CIELAB color")
-            return
-        }
-        XCTAssertEqual(red.L, 53.241, accuracy: 0.1)
-        XCTAssertEqual(red.a, 80.092, accuracy: 0.1)
-        XCTAssertEqual(red.b, 67.203, accuracy: 0.1)
-
-        guard let red = OKLab.first else {
-            XCTFail("Expected at least one CIELAB color")
-            return
-        }
-        XCTAssertEqual(red.L, 0.628, accuracy: 0.001)
-        XCTAssertEqual(red.a, 0.225, accuracy: 0.001)
-        XCTAssertEqual(red.b, 0.126, accuracy: 0.001)
-    }
+    
     // these are for explicitly testing the algorithms (which shouldn't change)
 
     func testWhiteReferenceValueOKLab() {

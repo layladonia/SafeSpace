@@ -1,10 +1,13 @@
 import XCTest
+#if canImport(CoreGraphics)
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+#endif
 @testable import SafeSpaceCore
 
 final class PaletteImageOrientationTests: XCTestCase {
+    #if canImport(CoreGraphics)
     func testAllEightEXIFOrientations() throws {
         let shades: [UInt8] = [20, 50, 80, 110, 140, 170]
         let bytes = shades.flatMap { [$0, $0, $0, UInt8(255)] }
@@ -25,6 +28,7 @@ final class PaletteImageOrientationTests: XCTestCase {
             XCTAssertEqual(red, orders[orientation - 1].map { shades[$0] }, "Orientation \(orientation)")
         }
     }
+    #endif
     func testResizeIsBounded() throws {
         let input = SRGBImage(width: 2048, height: 2, rgba: Array(repeating: [UInt8(255),0,0,255], count: 4096).flatMap { $0 })
         let output = try ImageLoader.load(data: input.pngData(), source: .library)

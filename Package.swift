@@ -9,7 +9,8 @@ let package = Package(
         .executable(name: "safespace-cli", targets: ["safespace-cli"])
     ],
     targets: [
-        .target(name: "SafeSpaceCore"),
+        .target(name: "CStbImage"),
+        .target(name: "SafeSpaceCore", dependencies: ["CStbImage"]),
         .executableTarget(name: "safespace-cli", dependencies: ["SafeSpaceCore"]),
         .testTarget(name: "SafeSpaceCoreTests", dependencies: ["SafeSpaceCore"])
     ]

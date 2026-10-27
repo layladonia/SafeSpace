@@ -44,17 +44,4 @@ public struct EligibilityMask: Sendable, Equatable {
         guard ok else { throw SafeSpaceError.load(.unreadableData) }
         self.init(width: w, height: h, eligible: bytes.map { $0 >= 128 })
     }
-
-    // Compatibility only for the old ImagePipeline API; new code uses the Bool mask.
-    @available(*, deprecated, message: "Use PaletteExtractor with EligibilityMask instead")
-    public static func apply(mask: Pixels?, to image: Pixels) -> Pixels {
-        guard let mask else { return image }
-        guard mask.width == image.width, mask.height == image.height,
-              mask.bytes.count == image.bytes.count else { return image }
-        var copy = image
-        for i in 0..<(image.width * image.height) {
-            if mask.bytes[i * 4] == 0 { copy.bytes[i * 4 + 3] = 0 }
-        }
-        return copy
-    }
 }

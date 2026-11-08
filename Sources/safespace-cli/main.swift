@@ -5,6 +5,12 @@ import SafeSpaceCore
 // extractions give bit-identical JSON and label maps (Task 7 "done when").
 
 var args = Array(CommandLine.arguments.dropFirst())
+do {
+    if try PaletteComparisonCommand.run(args) { exit(0) }
+} catch {
+    print("Comparison failed: \(error.localizedDescription)")
+    exit(2)
+}
 var reruns = 1
 var method = PaletteMethod.kmeansPP
 if let flag = args.firstIndex(of: "--reruns") {

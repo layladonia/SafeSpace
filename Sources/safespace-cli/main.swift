@@ -4,12 +4,31 @@ import SafeSpaceCore
 // Interim CLI until Task 12: prints each image's palette and checks that `--reruns N`
 // extractions give bit-identical JSON and label maps (Task 7 "done when").
 
+func reportCLIError(_ message: String) {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+}
+
 var args = Array(CommandLine.arguments.dropFirst())
+if args == ["--help"] || args == ["-h"] {
+    print("Usage: safespace-cli <image-file-or-folder> [--reruns N] [--method kmeans_pp|median_cut]")
+    print(PaletteComparisonCommand.usage)
+    print("--compare is a development utility, outside the contract analyze/contrast/validate commands.")
+    exit(0)
+}
+do {
+    if try PaletteComparisonCommand.run(args) { exit(0) }
+} catch let error as PaletteComparisonCommand.Failure {
+    reportCLIError(error.localizedDescription)
+    exit(error.exitCode)
+} catch {
+    reportCLIError("Comparison failed: \(error.localizedDescription)")
+    exit(2)
+}
 var reruns = 1
 var method = PaletteMethod.kmeansPP
 if let flag = args.firstIndex(of: "--reruns") {
     guard flag + 1 < args.count, let n = Int(args[flag + 1]), n >= 1 else {
-        print("--reruns needs a whole number of at least 1")
+        reportCLIError("--reruns needs a whole number of at least 1")
         exit(1)
     }
     reruns = n
@@ -17,20 +36,20 @@ if let flag = args.firstIndex(of: "--reruns") {
 }
 if let flag = args.firstIndex(of: "--method") {
     guard flag + 1 < args.count, let m = PaletteMethod(rawValue: args[flag + 1]) else {
-        print("--method must be kmeans_pp or median_cut")
+        reportCLIError("--method must be kmeans_pp or median_cut")
         exit(1)
     }
     method = m
     args.removeSubrange(flag...(flag + 1))
 }
 guard let path = args.first else {
-    print("usage: safespace-cli <image-file-or-folder> [--reruns N] [--method kmeans_pp|median_cut]")
+    reportCLIError("usage: safespace-cli <image-file-or-folder> [--reruns N] [--method kmeans_pp|median_cut]")
     exit(1)
 }
 
 var isDirectory: ObjCBool = false
 guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
-    print("No such file or folder: \(path)")
+    reportCLIError("No such file or folder: \(path)")
     exit(1)
 }
 
@@ -54,7 +73,7 @@ for imageURL in imageURLs {
     do {
         copy = try ImageLoader.load(url: imageURL)
     } catch {
-        print("\(name): failed to load (\(error))")
+        reportCLIError("\(name): failed to load (\(error))")
         failed = true
         continue
     }
@@ -79,7 +98,7 @@ for imageURL in imageURLs {
             }
         }
     } catch {
-        print("\(name): palette extraction failed (\(error))")
+        reportCLIError("\(name): palette extraction failed (\(error))")
         failed = true
         continue
     }

@@ -28,3 +28,5 @@ venv/
 .env
 *.p12
 *.mobileprovision
+
+/docs/Palette/palette-comparison-results/*.labels.bin

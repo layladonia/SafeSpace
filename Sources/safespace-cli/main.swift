@@ -1,121 +1,56 @@
 import Foundation
 import SafeSpaceCore
 
-// Interim CLI until Task 12: prints each image's palette and checks that `--reruns N`
-// extractions give bit-identical JSON and label maps (Task 7 "done when").
+// safespace-cli (contract §7). Exit codes: 0 every image produced a valid record, 1 usage
+// error, 2 an image failed to load or validate, 3 output directory not writable.
 
-func reportCLIError(_ message: String) {
-    FileHandle.standardError.write(Data((message + "\n").utf8))
-}
-
-var args = Array(CommandLine.arguments.dropFirst())
-if args == ["--help"] || args == ["-h"] {
-    print("Usage: safespace-cli <image-file-or-folder> [--reruns N] [--method kmeans_pp|median_cut]")
-    print(PaletteComparisonCommand.usage)
-    print("--compare is a development utility, outside the contract analyze/contrast/validate commands.")
-    exit(0)
-}
+let args = Array(CommandLine.arguments.dropFirst())
 do {
-    if try PaletteComparisonCommand.run(args) { exit(0) }
-} catch let error as PaletteComparisonCommand.Failure {
-    reportCLIError(error.localizedDescription)
-    exit(error.exitCode)
-} catch {
-    reportCLIError("Comparison failed: \(error.localizedDescription)")
-    exit(2)
-}
-var reruns = 1
-var method = PaletteMethod.kmeansPP
-if let flag = args.firstIndex(of: "--reruns") {
-    guard flag + 1 < args.count, let n = Int(args[flag + 1]), n >= 1 else {
-        reportCLIError("--reruns needs a whole number of at least 1")
-        exit(1)
-    }
-    reruns = n
-    args.removeSubrange(flag...(flag + 1))
-}
-if let flag = args.firstIndex(of: "--method") {
-    guard flag + 1 < args.count, let m = PaletteMethod(rawValue: args[flag + 1]) else {
-        reportCLIError("--method must be kmeans_pp or median_cut")
-        exit(1)
-    }
-    method = m
-    args.removeSubrange(flag...(flag + 1))
-}
-guard let path = args.first else {
-    reportCLIError("usage: safespace-cli <image-file-or-folder> [--reruns N] [--method kmeans_pp|median_cut]")
-    exit(1)
-}
-
-var isDirectory: ObjCBool = false
-guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
-    reportCLIError("No such file or folder: \(path)")
-    exit(1)
-}
-
-let url = URL(fileURLWithPath: path)
-let imageURLs: [URL]
-if isDirectory.boolValue {
-    imageURLs = ((try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? [])
-        .filter { !$0.lastPathComponent.hasPrefix(".") }
-        .sorted { $0.lastPathComponent < $1.lastPathComponent }
-} else {
-    imageURLs = [url]
-}
-
-let encoder = AssessmentJSON.encoder()
-let extractor = makePaletteExtractor(method)
-var failed = false
-
-for imageURL in imageURLs {
-    let name = imageURL.lastPathComponent
-    let copy: WorkingCopy
-    do {
-        copy = try ImageLoader.load(url: imageURL)
-    } catch {
-        reportCLIError("\(name): failed to load (\(error))")
-        failed = true
-        continue
-    }
-    let image = copy.image
-    let mask = EligibilityMask.all(width: image.width, height: image.height)
-
-    var first: (json: Data, labelMap: [UInt8])?
-    var identical = true
-    var durations: [Double] = []
-    var palette: PaletteResult?
-    do {
-        for _ in 0..<reruns {
-            let start = Date()
-            let output = try extractor.extract(image, mask: mask, params: .v1)
-            durations.append(Date().timeIntervalSince(start) * 1000)
-            let json = try encoder.encode(output.result)
-            if let first {
-                identical = identical && json == first.json && output.labelMap == first.labelMap
-            } else {
-                first = (json, output.labelMap)
-                palette = output.result
+    switch args.first {
+    case "analyze":
+        exit(try await AnalyzeCommand.run(Array(args.dropFirst())))
+    case "validate":
+        let files = args.dropFirst()
+        guard !files.isEmpty else { throw CLIError.usage(AnalyzeCommand.usage) }
+        var failed = false
+        for path in files {
+            do {
+                _ = try AssessmentJSON.decode(Data(contentsOf: URL(fileURLWithPath: path)))
+                print("\(path): valid")
+            } catch {
+                print("\(path): invalid\n\(error.localizedDescription)")
+                failed = true
             }
         }
-    } catch {
-        reportCLIError("\(name): palette extraction failed (\(error))")
-        failed = true
-        continue
+        exit(failed ? 2 : 0)
+    case "version":
+        print(SafeSpaceCore.version)
+    case "contrast":
+        throw CLIError.usage("contrast is not available until region contrast (Task 16) lands")
+    case "--compare":
+        // Task 8 development tool, outside the contract commands (docs/Palette/MEDIAN_CUT_TASK.md).
+        do {
+            _ = try PaletteComparisonCommand.run(args)
+            exit(0)
+        } catch let error as PaletteComparisonCommand.Failure {
+            AnalyzeCommand.warn(error.localizedDescription)
+            exit(error.exitCode)
+        } catch {
+            AnalyzeCommand.warn("Comparison failed: \(error.localizedDescription)")
+            exit(2)
+        }
+    case "--help", "-h":
+        print(AnalyzeCommand.usage)
+        print(PaletteComparisonCommand.usage)
+        print("--compare is a development utility, outside the contract analyze/contrast/validate commands.")
+    default:
+        throw CLIError.usage(AnalyzeCommand.usage)
     }
-
-    guard let palette else { continue }
-    print("\(name): \(image.width)x\(image.height) \(copy.provenance.original.colorSpace), "
-          + "\(palette.colors.count) colors, dropped \(String(format: "%.1f", palette.droppedShare * 100))%, "
-          + "median \(Int(durations.sorted()[durations.count / 2])) ms")
-    for color in palette.colors {
-        let hue = color.oklch.h.map { String(format: "%5.1f", $0) } ?? "    -"
-        print(String(format: "  %@ %@ %5.1f%%  L %.3f  C %.3f  h ", color.id, color.hex, color.share * 100,
-                     color.oklch.l, color.oklch.c) + hue)
-    }
-    if reruns > 1 {
-        print("  \(reruns) reruns identical: \(identical ? "yes" : "NO")")
-        if !identical { failed = true }
-    }
+} catch let error as CLIError {
+    AnalyzeCommand.warn(error.localizedDescription)
+    if case .notWritable = error { exit(3) }
+    exit(1)
+} catch {
+    AnalyzeCommand.warn(error.localizedDescription)
+    exit(1)
 }
-
-exit(failed ? 2 : 0)

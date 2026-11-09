@@ -10,6 +10,22 @@ public struct SRGBImage: Sendable, Equatable {
         self.width = width; self.height = height; self.rgba = rgba
     }
     public func pngData() -> Data { PNGCodec.encode(width: width, height: height, bytes: rgba, gray: false) }
+    /// Baseline JPEG via stb_image_write (no ICC profile, so it decodes as untagged sRGB).
+    public func jpegData(quality: Int) -> Data {
+        let buffer = PNGWriteBuffer()
+        let context = Unmanaged.passUnretained(buffer).toOpaque()
+        rgba.withUnsafeBytes { raw in
+            _ = stbi_write_jpg_to_func(pngWriteCallback, context, Int32(width), Int32(height), 4,
+                                       raw.baseAddress, Int32(quality))
+        }
+        precondition(!buffer.data.isEmpty, "JPEG encoding failed")
+        return buffer.data
+    }
+    /// 8-bit grayscale PNG of a palette label map (contract §4.7 `labels.png`).
+    public static func labelMapPNG(width: Int, height: Int, labels: [UInt8]) -> Data {
+        precondition(labels.count == width * height)
+        return PNGCodec.encode(width: width, height: height, bytes: labels, gray: true)
+    }
     public init(pngData: Data) throws {
         self = try ImageLoader.load(data: pngData, source: .file, maxLongSide: Int.max).image
     }

@@ -1,6 +1,6 @@
 {
   "core_version" : "0.2.0-dev",
-  "created_at" : "2026-11-08T21:39:53Z",
+  "created_at" : "2026-11-09T21:58:49Z",
   "images" : [
     "bathroom1.jpg",
     "bathroom7.jpg",
@@ -13,8 +13,8 @@
     "livingRoom4.jpg",
     "livingroom5.jpg"
   ],
-  "notes" : "Native Swift. Fallback disabled. One warm-up, three timed extractions. Loading, metrics and serialization excluded from timing. Seed probe: base, base+1, base+2. Error uses nearest retained OKLab centroid over all eligible pixels; not object contrast or accuracy ground truth.",
-  "os" : "Version 26.7.1 (Build 25G241)",
+  "notes" : "Development comparison tool. No runtime fallback. One warm-up and three timed extractions. Decoding, metrics and serialization excluded. Seed probes: base, base+1, base+2. Label maps checked in memory, not saved. Error uses nearest retained OKLab centroid over all eligible pixels; not object contrast or accuracy ground truth.",
+  "os" : "Version 26.7.2 (Build 25G332)",
   "params" : {
     "k_initial" : 8,
     "max_iterations" : 50,

@@ -1,65 +1,40 @@
-# SafeSpace — median-cut baseline and method comparison patch
+# Palette method comparison (Task 8)
 
-## Status
-Code patch generated against the uploaded Swift sources. No Swift compiler is installed in the generation environment: native compilation, XCTest execution, and the ten-image Swift benchmark have NOT been run. No measured comparison.csv is included or fabricated. The command below creates it on your Mac. Do not mark the full task complete until that run succeeds and its artifacts are committed.
+## Scope
+Median cut already exists in PaletteExtractor.swift behind the same PaletteExtractor interface as k-means++. Task 8 adds baseline tests and a reproducible method-comparison tool, not the algorithm. The app continues to use the explicitly configured method. There is no automatic runtime fallback. Median cut is the alternative baseline for the S1/D5 default-method decision if k-means++ is judged unstable.
 
-## Install
-From this patch, copy the Sources and Tests files into the same relative locations in your repository. Replace ONLY the existing AssessmentPipeline.swift and safespace-cli/main.swift. Add the other Swift files. Copy docs/palette-comparison-images.txt and this guide into your docs folder. Keep all your existing files. The included PaletteExtractor.swift is an unchanged copy of your uploaded baseline for review; it can be left untouched in your repository. Do not add duplicate copies of a replaced file to a target. No Package.swift, AppModel.swift, result-view, or app Palette-folder change is required: SwiftPM automatically discovers added Swift files in the existing targets.
+## Recorded baseline
+The local review reports that the committed palette-comparison-results/comparison.csv contains 20 successful method rows for ten images, with identical same-seed reruns for both methods. It reports lower nearest-centroid color error for k-means++ on all ten images, approximately 1.5–2x faster extraction for median cut, median-cut seed independence, and k-means++ cross-seed palette distances of approximately 0.002–0.031 in OKLab. These observations describe this ten-image sample and local run; they are not guarantees for other images or devices. Consult the committed CSV and run metadata for exact measurements.
 
-## Existing baseline retained
-Your existing PaletteExtractor.swift already implements KMeansPlusPlus and MedianCut behind PaletteExtractor and makePaletteExtractor. Median cut uses pixel-count-weighted splits in OKLab: choose the box/axis with greatest range; sort with deterministic ties; split near half the pixel weight; compute weighted mean centroids. Both methods use the existing identical merge/minimum-share/label-map code. This patch does not replace that algorithm, change method version 1, or change defaults.
+This evidence supports retaining k-means++ as the current default on color-error grounds, with median cut retained as a deterministic alternative. Formal D5 approval remains a project decision; seed sensitivity and exact same-seed repeatability are distinct properties.
 
-Defaults retained from your uploaded code: kInitial=8, seed=482, maxIterations=50, mergeDeltaEOk=0.04, minShare=0.01, sampleStride=1, space=oklab. This is a 1% minimum share, not the 0.5% setting discussed previously. If the team wants 0.5%, change the shared setting deliberately and rerun BOTH methods. Do not compare different parameter sets.
-
-## App fallback
-PipelineOptions.paletteFallback defaults to .medianCutOnFailure. The pipeline still requests k-means++ by default. PaletteRunner attempts median cut once if k-means++ throws noRetainedColors or returns an output that fails the runner's count/share/label/numeric integrity checks. Invalid parameters, no eligible pixels, cancellation and unexpected errors propagate; median-cut failures propagate without recursion. The existing pipeline converts ordinary propagated extraction errors to a failed step; cancellation remains cancellation.
-
-The completed method record names the method that actually produced the palette. A limitation finding records fallback and its reason. No new assessment JSON keys are added (your wire validator rejects unknown keys). Palette duration includes primary extraction, checks, and any fallback. If fallback also fails, there is no completed result; the failed step retains the requested method record.
-
-This is failure recovery, NOT automatic perceptual-instability detection. The existing engine has no convergence diagnostic; reaching maxIterations is not treated as failure. It also does not detect whether a visually important object color is missing. Same-seed repeatability and cross-seed sensitivity are measured by the comparison command; the team can explicitly select median cut if those results warrant it:
-
-```swift
-var options = PipelineOptions()
-options.paletteMethod = .medianCut
-// Pass options to AssessmentPipeline.run as before.
-```
-
-To disable automatic fallback:
-```swift
-options.paletteFallback = .disabled
-```
-
-## Run on your Mac
-Open Terminal in the repository root (the folder with Package.swift):
+## Reproduce
+Run from the repository root:
 
 ```sh
 swift test --filter MedianCutBaselineTests
-swift run -c release safespace-cli --compare Datasets/room-photos docs/palette-comparison-images.txt docs/palette-comparison-results
+swift run -c release safespace-cli --compare Datasets/room-photos docs/Palette/palette-comparison-images.txt docs/Palette/palette-comparison-results
 ```
 
-If your images are in a different folder, replace only Datasets/room-photos. The manifest uses the exact case-sensitive filenames you uploaded. All ten originals must be present locally. Comparison runs are independent photo analyses, not pooled room palettes; nothing changes your room photo limit or app capture flow.
+The manifest fixes the Task 8 sample of ten filenames. The tool itself accepts any non-empty manifest of distinct basenames, one per line, ignoring blank lines and lines starting with #. Image paths are resolved against the image folder. Use a new output directory for another sample or experiment to keep runs separate. Rerunning overwrites artifacts for the selected filenames but does not remove old artifacts from other runs.
 
-## Outputs
-- comparison.csv: 20 rows (ten images times two methods); failures remain explicit rows.
-- run-metadata.json: actual parameters, core version, OS, CPU count, date and file list.
-- 20 palette JSON files and 20 raw row-major label maps (one UInt8 per working-copy pixel, 255=excluded/dropped).
+`--compare` is a development-only utility, not an additional contract analyze/contrast/validate command. `--help` identifies it as such. Usage/configuration errors return exit code 1; unsuccessful execution returns 2; a successful run returns 0. Diagnostics go to stderr; progress and help go to stdout. Input image decode failures are execution failures recorded in the CSV, not usage errors.
 
-Each image is decoded once by your ImageLoader; both methods share that working copy and mask. No fallback is used in the benchmark. One untimed warm-up precedes three timed same-seed extractions. The CSV uses the median of the three durations. A monotonic timer measures only extractor execution, excluding decoding, metrics, output serialization and runner integrity checks. Order alternates by image. This is a small in-process comparison, not a controlled production performance study. Repeat on the same Mac and record hardware/build context in your report.
+## Method and timing
+Each image is decoded once by ImageLoader. Both extractors receive the same working image, mask and PaletteParams.v1. Defaults remain kInitial=8, seed=482, maxIterations=50, mergeDeltaEOk=0.04, minShare=0.01, sampleStride=1, space=oklab. Do not change parameters for only one method.
 
-same_seed_identical_3_runs compares exact PaletteResult values and label maps, not timestamps. It is distinct from seed sensitivity. seed_sensitivity_chamfer_oklab is the mean symmetric share-weighted nearest-centroid distance from seed 482's retained palette to seeds 483 and 484. Smaller indicates lower sensitivity in these three probes; zero is expected for median cut because it does not use a seed. This is not an exhaustive stability guarantee and is not a trigger for automatic app fallback.
+Each method has one untimed warm-up and three timed same-seed extractions. A monotonic clock measures extraction only; decoding, metrics and file serialization are excluded. The CSV reports median extraction time. Method order alternates between images to reduce systematic ordering bias. This small in-process benchmark is not a controlled production performance study. Timing comparisons should use the same machine and build configuration.
 
-mean_nearest_oklab_error averages Euclidean OKLab distance from EVERY eligible input pixel to its nearest RETAINED unrounded OKLab centroid, including pixels dropped by the final share threshold. Lower means better nearest-centroid color approximation by this metric. It does not measure object recognition, region contrast, safety, physical area, or validated clinical accuracy. The exported hex colors can differ slightly because they are clipped/rounded for display. dropped_share is a fraction of all eligible pixels; retained shares plus dropped share equal one.
+## Reading the CSV
+- image/method/status identify the input, extractor and outcome. An N-image manifest produces 2N rows, including explicit failure rows.
+- colors is the retained color count. dropped_share is a fraction of eligible pixels, not a percentage. Retained shares plus dropped_share equal one.
+- same_seed_identical_3_runs compares exact PaletteResult values and full label maps across three runs. Runtime is not part of that equality.
+- mean_nearest_oklab_error is mean Euclidean OKLab distance from every eligible pixel to its nearest retained unrounded centroid. It includes pixels whose assigned cluster was dropped. Lower means better approximation by this metric, not object recognition or validated contrast/safety accuracy. Displayed hex colors are rounded and gamut-clipped.
+- seed_sensitivity_chamfer_oklab is the mean symmetric, share-weighted nearest-centroid distance from the base seed palette to the palettes for seed+1 and seed+2. Smaller indicates less sensitivity for these probes, not an exhaustive stability guarantee. Median cut does not use a seed and should have zero sensitivity.
+- palette_hex_and_shares lists display colors and their fractions.
+- error is populated for load/extraction failures. Failed rows or differing same-seed reruns cause a nonzero command exit after table generation.
 
-The deliberately blurry image remains in the benchmark and is not silently rejected. Your current quality step is not implemented; palette results must not be interpreted as passing a photo-quality check.
+## Retained artifacts
+Keep comparison.csv, per-image/method palette JSON files, and run-metadata.json. Label maps are used only in memory for repeatability checks; this tool no longer saves .labels.bin files. Do not commit previously generated label-map binaries. The command does not delete existing files.
 
-Missing/undecodable images and extraction failures are saved as error rows and cause nonzero command exit after saving. A non-repeatable result also causes nonzero exit. Setup/file-write failures can prevent saving; fix the reported error and rerun. Do not replace missing images silently after starting the report; update the manifest and rerun both methods if the sample changes.
-
-## Tests included (not yet executed here)
-Shared-interface/count conservation; weighted one-centroid mean; solid-color input; mask exclusion; no eligible pixels; invalid parameters; median-cut seed independence; fallback success/provenance; disabled fallback; invalid-output fallback; unexpected-error propagation; secondary failure without recursion; cancellation propagation; sampled clustering/full-pixel accounting.
-
-## Done when
-1. The app and SwiftPM targets compile.
-2. New and existing tests pass.
-3. comparison.csv has 20 successful rows for the fixed ten originals.
-4. Repeatability and seed-sensitivity results have been reviewed (differences are evidence, not automatic algorithm failure).
-5. Commit the patch, manifest, comparison outputs and report interpretation.
+The deliberately blurry image remains in this sample. The current quality step is not implemented, so inclusion does not indicate a passed quality check. These are individual-photo comparisons, not pooled room analyses; the app's photo limit and capture flow are unchanged.

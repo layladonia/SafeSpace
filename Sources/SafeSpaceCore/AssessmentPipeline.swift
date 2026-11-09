@@ -40,7 +40,6 @@ public struct NoOpAnonymizer: Anonymizer {
 }
 public struct PipelineOptions: Sendable {
     public var paletteMethod: PaletteMethod = .kmeansPP
-    public var paletteFallback: PaletteFallbackPolicy = .medianCutOnFailure
     public var paletteParams: PaletteParams = .v1
     public var qualityParams: QualityParams = .v1
     public var runQuality = true
@@ -84,20 +83,13 @@ public enum AssessmentPipeline {
         let extractor = makePaletteExtractor(options.paletteMethod)
         let encodedParams = try AssessmentJSON.encoder().encode(options.paletteParams)
         let params = try JSONDecoder().decode(ContractJSON.self, from: encodedParams)
-        var method = MethodRecord(name: extractor.method.rawValue, version: extractor.methodVersion, params: params)
+        let method = MethodRecord(name: extractor.method.rawValue, version: extractor.methodVersion, params: params)
         progress(.palette, .running)
         let paletteStart = Date()
         var palette: StepRecord<PaletteResult>
         var map: [UInt8]?
-        var fallbackReason: String?
         do {
-            let execution = try PaletteRunner.extract(copy.image, mask: mask,
-                params: options.paletteParams, method: options.paletteMethod,
-                fallback: options.paletteFallback)
-            let output = execution.output
-            fallbackReason = execution.fallbackReason
-            method = MethodRecord(name: execution.usedMethod.rawValue,
-                                  version: execution.methodVersion, params: params)
+            let output = try extractor.extract(copy.image, mask: mask, params: options.paletteParams)
             palette = .init(status: .completed, reason: nil, durationMs: elapsed(paletteStart),
                             method: method, result: output.result)
             map = output.labelMap
@@ -122,12 +114,6 @@ public enum AssessmentPipeline {
             roomId: roomID.lowercased(), createdAt: now, updatedAt: now, producer: producer, image: image,
             steps: .init(quality: quality, anonymization: privacy, palette: palette, contrast: contrast), findings: [])
         record.findings = Findings.generate(for: record)
-        if let fallbackReason {
-            record.findings.append(.init(id: "palette-fallback", kind: .limitation,
-                templateId: "limitation.palette_fallback", templateVersion: 1,
-                text: "The requested k-means++ palette could not be used (\(fallbackReason)). Median cut produced this palette instead.",
-                sources: ["/steps/palette/method/name"]))
-        }
         try Task.checkCancellation()
         // Structural programming errors must not be hidden as successful output.
         try AssessmentValidator.validate(record)

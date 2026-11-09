@@ -1,21 +1,38 @@
 import Foundation
 import SafeSpaceCore
 
-// Separate command mode; preserves the existing single-method CLI.
+/// Development-only comparison utility; not a contract analyze/contrast/validate command.
 enum PaletteComparisonCommand {
+    enum Failure: Error, LocalizedError {
+        case usage(String)
+        case execution(String)
+        var errorDescription: String? {
+            switch self { case .usage(let message), .execution(let message): return message }
+        }
+        var exitCode: Int32 {
+            switch self { case .usage: return 1; case .execution: return 2 }
+        }
+    }
+    static let usage = "Usage (development tool): safespace-cli --compare <image-folder> <manifest.txt> <output-folder>"
+
     static func run(_ args: [String]) throws -> Bool {
         guard args.first == "--compare" else { return false }
-        guard args.count == 4 else {
-            throw CommandError.usage("Usage: safespace-cli --compare <image-folder> <manifest.txt> <output-folder>")
-        }
+        guard args.count == 4 else { throw Failure.usage(usage) }
         let directory = URL(fileURLWithPath: args[1], isDirectory: true)
-        let manifest = try String(contentsOfFile: args[2], encoding: .utf8)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw Failure.usage("Image folder does not exist or is not a directory: \(args[1])")
+        }
+        let manifest: String
+        do { manifest = try String(contentsOfFile: args[2], encoding: .utf8) }
+        catch { throw Failure.usage("Cannot read UTF-8 manifest: \(args[2])") }
         let names = manifest.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-        guard names.count == 10, Set(names).count == 10,
+        guard !names.isEmpty, Set(names).count == names.count,
               names.allSatisfy({ ($0 as NSString).lastPathComponent == $0 && $0 != "." && $0 != ".." }) else {
-            throw CommandError.usage("Manifest must contain exactly 10 distinct basenames.")
+            throw Failure.usage("Manifest must contain one or more distinct image basenames (no paths).")
         }
         let destination = URL(fileURLWithPath: args[3], isDirectory: true)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
@@ -28,6 +45,7 @@ enum PaletteComparisonCommand {
         for (imageIndex, name) in names.enumerated() {
             let copy: WorkingCopy
             do { copy = try ImageLoader.load(url: directory.appendingPathComponent(name)) }
+            catch is CancellationError { throw CancellationError() }
             catch {
                 failures = true
                 for method in methods {
@@ -37,12 +55,11 @@ enum PaletteComparisonCommand {
             }
             let image = copy.image
             let mask = EligibilityMask.all(width: image.width, height: image.height)
-            // Alternate execution order across images to reduce systematic order bias.
             let ordered = imageIndex % 2 == 0 ? methods : Array(methods.reversed())
             for method in ordered {
                 do {
                     let extractor = makePaletteExtractor(method)
-                    _ = try extractor.extract(image, mask: mask, params: params) // untimed warm-up
+                    _ = try extractor.extract(image, mask: mask, params: params)
                     var first: PaletteOutput?
                     var durations: [Double] = []
                     var identical = true
@@ -55,24 +72,23 @@ enum PaletteComparisonCommand {
                             identical = identical && baseline.result == output.result && baseline.labelMap == output.labelMap
                         } else { first = output }
                     }
-                    guard let output = first else { throw CommandError.usage("Missing extraction output") }
+                    guard let output = first else { throw Failure.execution("Missing extraction output") }
                     var sensitivity = 0.0
                     for seed in [params.seed &+ 1, params.seed &+ 2] {
-                        var alternative = params
-                        alternative.seed = seed
+                        var alternative = params; alternative.seed = seed
                         let other = try extractor.extract(image, mask: mask, params: alternative)
                         sensitivity += chamfer(output.result, other.result) / 2
                     }
                     let error = try reconstructionError(image, mask: mask, result: output.result)
                     let palette = output.result.colors.map { "\($0.hex):\($0.share)" }.joined(separator: ";")
+                    // Label maps remain in memory for repeatability; never persist them here.
+                    let base = "\((name as NSString).deletingPathExtension)-\(method.rawValue)"
+                    try AssessmentJSON.encoder().encode(output.result).write(
+                        to: destination.appendingPathComponent(base + ".json"), options: .atomic)
                     rows.append([name, method.rawValue, "ok", String(image.width), String(image.height),
                                  String(output.result.colors.count), String(output.result.droppedShare),
                                  String(durations.sorted()[1]), String(identical), String(error),
                                  String(sensitivity), palette, ""])
-                    let base = "\((name as NSString).deletingPathExtension)-\(method.rawValue)"
-                    try AssessmentJSON.encoder().encode(output.result).write(
-                        to: destination.appendingPathComponent(base + ".json"), options: .atomic)
-                    try Data(output.labelMap).write(to: destination.appendingPathComponent(base + ".labels.bin"), options: .atomic)
                     if !identical { failures = true }
                 } catch is CancellationError { throw CancellationError() }
                 catch {
@@ -86,13 +102,12 @@ enum PaletteComparisonCommand {
         try csv.write(to: destination.appendingPathComponent("comparison.csv"), atomically: true, encoding: .utf8)
         let metadata = Metadata(coreVersion: SafeSpaceCore.version,
             os: ProcessInfo.processInfo.operatingSystemVersionString,
-            processorCount: ProcessInfo.processInfo.processorCount,
-            createdAt: Date(), params: params, images: names,
-            notes: "Native Swift. Fallback disabled. One warm-up, three timed extractions. Loading, metrics and serialization excluded from timing. Seed probe: base, base+1, base+2. Error uses nearest retained OKLab centroid over all eligible pixels; not object contrast or accuracy ground truth.")
-        let encoder = AssessmentJSON.encoder()
-        try encoder.encode(metadata).write(to: destination.appendingPathComponent("run-metadata.json"), options: .atomic)
+            processorCount: ProcessInfo.processInfo.processorCount, createdAt: Date(), params: params, images: names,
+            notes: "Development comparison tool. No runtime fallback. One warm-up and three timed extractions. Decoding, metrics and serialization excluded. Seed probes: base, base+1, base+2. Label maps checked in memory, not saved. Error uses nearest retained OKLab centroid over all eligible pixels; not object contrast or accuracy ground truth.")
+        try AssessmentJSON.encoder().encode(metadata).write(
+            to: destination.appendingPathComponent("run-metadata.json"), options: .atomic)
         print("Saved \(rows.count - 1) method rows to \(destination.path)/comparison.csv")
-        if failures { throw CommandError.usage("Table saved, but one or more rows failed or were not repeatable. Inspect comparison.csv.") }
+        if failures { throw Failure.execution("Table saved, but one or more rows failed or were not repeatable. Inspect comparison.csv.") }
         return true
     }
     private struct Metadata: Encodable {
@@ -103,10 +118,6 @@ enum PaletteComparisonCommand {
         let params: PaletteParams
         let images: [String]
         let notes: String
-    }
-    enum CommandError: Error, LocalizedError {
-        case usage(String)
-        var errorDescription: String? { if case .usage(let text) = self { return text }; return nil }
     }
     private static func csvCell(_ value: String) -> String {
         "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""

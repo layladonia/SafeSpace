@@ -129,9 +129,7 @@ final class AppModel {
         )
 
         // Contract defaults (PaletteParams.v1), the same ones the CLI and tests use.
-        var options = PipelineOptions()
-        options.paletteMethod = .kmeansPP
-        options.paletteFallback = .medianCutOnFailure
+        let options = PipelineOptions()
 
         let output = try await AssessmentPipeline.run(
             imageData: photo.originalData,

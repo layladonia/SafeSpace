@@ -84,6 +84,18 @@ final class PaletteEngineTests: XCTestCase {
         object["unknown_key"] = true
         XCTAssertThrowsError(try AssessmentJSON.decode(JSONSerialization.data(withJSONObject: object)))
     }
+    func testEveryLoaderColorSpaceValidates() async throws {
+        // Every value ImageLoader can write to original.color_space must pass the validator.
+        let input = image(Array(repeating: [255,0,0], count: 16)).pngData()
+        let producer = Producer(kind: "cli", appVersion: nil, coreVersion: SafeSpaceCore.version, device: "test", os: "test")
+        var record = try await AssessmentPipeline.run(imageData: input, source: .file, roomID: "cli", producer: producer).record
+        for space in ["untagged", "srgb", "display_p3", "adobe_rgb", "other"] {
+            record.image.original.colorSpace = space
+            XCTAssertNoThrow(try AssessmentJSON.decode(AssessmentJSON.encode(record)), space)
+        }
+        record.image.original.colorSpace = "prophoto"
+        XCTAssertThrowsError(try AssessmentValidator.validate(record))
+    }
     func testMedianCutIsDeterministic() throws {
         let input = image([[255,0,0],[255,0,0],[0,0,255],[0,255,0]])
         let mask = EligibilityMask.all(width: 4, height: 1)

@@ -39,6 +39,15 @@ struct AssessmentResultView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    let colorFindings = assessment.record.findings.filter { $0.kind != .limitation }
+                    if !colorFindings.isEmpty {
+                        Section("What the colors show") {
+                            ForEach(colorFindings) { finding in
+                                Text(finding.text)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
                     Section("Limitations") {
                         ForEach(
                             assessment.record.findings.filter {

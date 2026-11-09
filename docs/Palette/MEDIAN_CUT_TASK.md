@@ -13,7 +13,8 @@ Run from the repository root:
 
 ```sh
 swift test --filter MedianCutBaselineTests
-swift run -c release safespace-cli --compare Datasets/room-photos docs/Palette/palette-comparison-images.txt docs/Palette/palette-comparison-results
+swift run -c release safespace-cli --compare Datasets/room-photos/images docs/Palette/palette-comparison-images.txt docs/Palette/palette-comparison-results
+
 ```
 
 The manifest fixes the Task 8 sample of ten filenames. The tool itself accepts any non-empty manifest of distinct basenames, one per line, ignoring blank lines and lines starting with #. Image paths are resolved against the image folder. Use a new output directory for another sample or experiment to keep runs separate. Rerunning overwrites artifacts for the selected filenames but does not remove old artifacts from other runs.

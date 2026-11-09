@@ -1,6 +1,7 @@
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
+import SafeSpaceCore
 
 struct NewAssessmentView: View {
     let roomID: Room.ID
@@ -35,7 +36,7 @@ struct NewAssessmentView: View {
                 .disabled(photo != nil || isLoading || isAnalyzing)
                 Text("One photo per assessment. Analysis runs on this iPhone.")
                     .font(.subheadline).foregroundStyle(.secondary)
-                Text("Development build: people are not hidden or excluded. Use test photos without people.")
+                Text("Development build: people are not hidden or excluded, and the analyzed photo copy is saved on this iPhone. Use test photos without people.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if isLoading { ProgressView("Loading photo…") }
                 if isAnalyzing { ProgressView("Analyzing colors…") }
@@ -97,7 +98,7 @@ struct NewAssessmentView: View {
         analysisTask = Task { @MainActor in
             defer { isAnalyzing = false; analysisTask = nil }
             do {
-                let id = try await model.analyzeAndAddAssessment(to: roomID, photo: input)
+                let id = try await model.analyzeAndSave(to: roomID, photo: input)
                 try Task.checkCancellation()
                 completedNavigation = true
                 photo = nil; selection = nil

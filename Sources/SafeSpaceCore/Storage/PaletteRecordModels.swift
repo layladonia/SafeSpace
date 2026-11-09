@@ -18,13 +18,23 @@ public enum OverallState: String, Codable, Sendable { case complete, partial, fa
 public enum LoadFailure: String, Codable, Sendable {
     case unreadableData, unsupportedFormat, unsupportedColorSpace, emptyImage
 }
+public enum StorageFailure: Equatable, Sendable {
+    case notFound, corrupt, unsupportedSchemaVersion(String), writeFailed, insufficientSpace
+}
 public enum SafeSpaceError: Error, Equatable, Sendable, LocalizedError {
     case load(LoadFailure)
     case validation([String])
+    case storage(StorageFailure)
     public var errorDescription: String? {
         switch self {
         case .load(let failure): return "The photo could not be loaded (\(failure.rawValue))."
         case .validation(let messages): return messages.joined(separator: "\n")
+        case .storage(.notFound): return "This room or assessment no longer exists."
+        case .storage(.corrupt): return "This saved assessment can't be opened."
+        case .storage(.unsupportedSchemaVersion(let version)):
+            return "This assessment was saved by a newer version of the app (format \(version))."
+        case .storage(.writeFailed): return "The assessment couldn't be saved."
+        case .storage(.insufficientSpace): return "There isn't enough free space on this device to save."
         }
     }
 }

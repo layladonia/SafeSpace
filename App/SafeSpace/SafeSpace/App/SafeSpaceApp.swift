@@ -18,11 +18,13 @@ struct SafeSpaceApp: App {
 /// so navigation is data-driven and easy to test or deep-link later.
 struct RootView: View {
     @Environment(Router.self) private var router
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var router = router
         NavigationStack(path: $router.path) {
             RoomListView()
+                .task { await model.reload() }
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .room(let roomID):

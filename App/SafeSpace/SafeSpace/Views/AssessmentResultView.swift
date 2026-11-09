@@ -4,24 +4,29 @@ import SafeSpaceCore
 
 struct AssessmentResultView: View {
     let roomID: Room.ID
-    let assessmentID: Assessment.ID
+    let assessmentID: AssessmentSummary.ID
     @Environment(AppModel.self) private var model
+    @State private var assessment: StoredAssessment?
+    @State private var loadError: String?
     @State private var exportDocument: AssessmentJSONDocument?
     @State private var isExporting = false
     @State private var errorMessage: String?
 
     var body: some View {
         Group {
-            if let assessment = model.assessment(id: assessmentID, in: roomID) {
+            if let assessment {
                 List {
                     Section("Photo") {
-                        ForEach(assessment.photos) { photo in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Image(uiImage: photo.preview).resizable().scaledToFit()
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let image = assessment.image?.uiImage {
+                                Image(uiImage: image).resizable().scaledToFit()
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                                     .accessibilityLabel("Analyzed photo")
-                                Text(photo.summary).font(.caption).foregroundStyle(.secondary)
+                            } else {
+                                Label("No photo copy was saved for this assessment.", systemImage: "photo")
+                                    .foregroundStyle(.secondary)
                             }
+                            Text(photoSummary(assessment.record.image)).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     if let result = assessment.record.steps.palette.result {
@@ -78,13 +83,13 @@ struct AssessmentResultView: View {
                     } footer: {
                         Text(
                             """
-                            Results are in memory only. Export JSON to keep a result file. \
-                            Restarting the app clears room history in this build.
+                            Saved on this iPhone and reopened exactly as first shown. \
+                            Deleting removes the saved photo copy, the color results and the text for this assessment.
                             """
                         )
                     }
                 }
-                .navigationTitle(assessment.createdAt.formatted(date: .abbreviated, time: .shortened))
+                .navigationTitle(assessment.record.createdAt.formatted(date: .abbreviated, time: .shortened))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -96,9 +101,16 @@ struct AssessmentResultView: View {
                         }
                     }
                 }
+            } else if let loadError {
+                ContentUnavailableView("Can't open this assessment", systemImage: "exclamationmark.triangle",
+                                       description: Text(loadError))
             } else {
-                ContentUnavailableView("Assessment not found", systemImage: "questionmark.folder")
+                ProgressView()
             }
+        }
+        .task(id: assessmentID) {
+            do { assessment = try await model.loadAssessment(id: assessmentID) }
+            catch { loadError = error.localizedDescription }
         }
         .fileExporter(isPresented: $isExporting, document: exportDocument,
                       contentType: .json, defaultFilename: "assessment") { result in
@@ -111,12 +123,17 @@ struct AssessmentResultView: View {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "Unknown error") }
     }
+    private func photoSummary(_ image: ImageRecord) -> String {
+        "Analyzed copy \(image.workingCopy.width) × \(image.workingCopy.height) pixels, from "
+            + "\(image.original.width) × \(image.original.height) \(image.original.format.uppercased()) (\(image.source.rawValue))"
+    }
     private func statusRow(_ title: String, _ status: StepStatus, _ reason: ReasonCode?) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             LabeledContent(title, value: status == .completed ? "Done" : status == .failed ? "Failed" : "Skipped")
             if let reason {
                 Text(reason == .notImplemented ? "This check isn't available in this version."
-                    : reason == .imageUnavailable ? "No working image has been saved to disk."
+                    : reason == .notRequested ? "No areas have been compared yet."
+                    : reason == .imageUnavailable ? "The saved photo isn't available, so areas can't be compared."
                     : reason.rawValue.replacingOccurrences(of: "_", with: " "))
                     .font(.caption).foregroundStyle(.secondary)
             }

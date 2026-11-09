@@ -48,7 +48,7 @@ public enum AssessmentValidator {
         }
         require([ReasonCode.notRequested, .imageUnavailable, .notImplemented, .dependencyFailed].contains(r.steps.contrast.reason ?? .disabledByUser), "Invalid contrast skip reason")
         require(["heic", "jpeg", "png", "other"].contains(r.image.original.format), "Invalid original format")
-        require(["srgb", "display_p3", "untagged", "other"].contains(r.image.original.colorSpace), "Invalid original color space")
+        require(["srgb", "display_p3", "adobe_rgb", "untagged", "other"].contains(r.image.original.colorSpace), "Invalid original color space")
         require((1...8).contains(r.image.original.exifOrientation), "Invalid EXIF orientation")
         require(r.image.original.width > 0 && r.image.original.height > 0, "Invalid original dimensions")
         require(r.image.workingCopy.orientationApplied && r.image.workingCopy.resizeMethod == "area_average_gamma_encoded"

@@ -110,6 +110,7 @@ Core paths are relative to Sources/SafeSpaceCore/.
 | Color/EligibilityMask.swift | Explicit Boolean mask; isolated deprecated legacy adapter |
 | Imaging/ImageLoader.swift | ImageIO/CoreGraphics preprocessing and provenance |
 | Color/Palette/PaletteExtractor.swift | Parameters, extractor interface, k-means++, median-cut alternative, labels |
+| Color/RegionContrast.swift | Averages two regions' eligible pixels into CIELAB, calls the existing CIEDE2000 formula |
 | Storage/PaletteRecordModels.swift | Early-build record types and JSON encoding |
 | Storage/PaletteRecordValidation.swift | Early-build semantic validation and wire-key checks |
 | Findings/Findings.swift | Finding templates, source pointers, banned-term checks |
@@ -121,7 +122,8 @@ Core paths are relative to Sources/SafeSpaceCore/.
 | Tests/SafeSpaceCoreTests/PaletteEngineTests.swift | Engine/record regression tests |
 | Tests/SafeSpaceCoreTests/PaletteImageOrientationTests.swift | EXIF orientation and resize tests |
 | Tests/SafeSpaceCoreTests/PaletteAccentTests.swift | Synthetic 5% red-accent test |
-| Sources/safespace-cli/main.swift | Interim CLI: prints palettes and checks `--reruns N` are bit-identical |
+| Tests/SafeSpaceCoreTests/RegionContrastTests.swift | Region-average/CIEDE2000 and pipeline-wiring tests |
+| Sources/safespace-cli/main.swift | Interim CLI: prints palettes, `--reruns N` identity check, and `--region1`/`--region2` contrast |
 
 Keep Core files in the package target, not directly in the app target. App-only test files from the abandoned implementation must not remain in the Core test target.
 
@@ -178,7 +180,45 @@ The palette is an overview, not an exhaustive list of image colors. More swatche
 
 The contract specifies direct region comparison from eligible working-copy pixels: mean CIELAB values for two user-selected regions followed by CIEDE2000. It must not depend on whether those regions' colors appear in the palette.
 
-Keeping a small red group does not reduce the accuracy of that separate calculation. Missing a palette swatch must not make the object's region unavailable for measurement. The region-contrast feature is not implemented in this patch. CIEDE2000 photographic color difference must not be presented as a validated room-safety or accessibility judgment.
+Keeping a small red group does not reduce the accuracy of that separate calculation. Missing a palette swatch must not make the object's region unavailable for measurement. CIEDE2000 photographic color difference must not be presented as a validated room-safety or accessibility judgment.
+
+The averaging-then-CIEDE2000 step is implemented in `Sources/SafeSpaceCore/Color/RegionContrast.swift` (`RegionContrast.compare`), wired into `AssessmentPipeline` via `PipelineOptions.contrastRegion1`/`contrastRegion2`. **The region-selection screen itself (drawing the two boxes on the photo) is not implemented here** — that UI work still needs to call this function. See "Calling region contrast from the UI" below.
+
+### Calling region contrast from the UI
+
+The region-selection screen only needs to produce two `NormalizedRect` values (0-1 fractions of
+the photo's width/height, same shape already used for anonymization boxes) and set them on
+`PipelineOptions` before calling `AssessmentPipeline.run`, exactly like `AppModel.analyzeAndAddAssessment`
+already sets `paletteMethod` etc:
+
+```swift
+var options = PipelineOptions()
+options.contrastRegion1 = NormalizedRect(x: wallBox.x, y: wallBox.y, width: wallBox.width, height: wallBox.height)
+options.contrastRegion2 = NormalizedRect(x: floorBox.x, y: floorBox.y, width: floorBox.width, height: floorBox.height)
+
+let output = try await AssessmentPipeline.run(
+    imageData: photo.originalData, source: ..., roomID: ..., producer: ..., options: options
+)
+```
+
+Leave both `nil` (the default) until the user has actually drawn two boxes — that's what keeps
+`steps.contrast` at `skipped(.notRequested)` instead of running on garbage coordinates. Do not
+call `RegionContrast.compare` directly from the UI; always go through `PipelineOptions` so the
+pipeline records duration, method, and the `limitation.contrast_not_judgment` finding, and so the
+result passes `AssessmentValidator`.
+
+After the run, read the result back out of the record for display:
+
+```swift
+let result = output.record.steps.contrast.result   // RegionContrastResult?, nil unless .completed
+// result?.colorSpace == "cielab", result?.formula == "ciede2000", result?.deltaE
+// result?.region1.cielab / result?.region2.cielab for the two averaged Lab values
+```
+
+`NormalizedRect`'s coordinates are the same (0,0)-top-left, row-0-is-top-of-photo convention the
+working copy already uses (see "Preprocessing and algorithm" above) — the box the user drags on
+screen maps directly to it with no extra flip/transform needed, as long as the screen draws over
+the same working-copy-oriented image (not the raw camera buffer before EXIF correction).
 
 ## Scope, storage, and privacy
 
@@ -188,7 +228,7 @@ Keeping a small red group does not reduce the accuracy of that separate calculat
 | Quality metrics | Skipped/not_implemented, or disabled_by_user |
 | Anonymization | NoOpAnonymizer; skipped/not_implemented |
 | Palette | Real extraction, completed or failed |
-| Region contrast | Not implemented; skipped/image_unavailable |
+| Region contrast | Real calculation when two regions are set in `PipelineOptions`; otherwise skipped/not_requested. No region-drawing UI yet. |
 | Disk history persistence | Not implemented |
 
 Only the NoOpAnonymizer route is supported by the current pipeline. Do not pass a real/custom anonymizer and assume its detection is integrated.

@@ -54,6 +54,11 @@ public enum Findings {
         }
         append(.limitation, "limitation.palette_not_contrast",
                "Pixel shares are not measurements of physical surface area. A palette does not compare the color difference between two selected areas.")
+        if record.steps.contrast.status != .skipped {
+            append(.limitation, "limitation.contrast_not_judgment",
+                   "This number measures the color difference between the two selected areas in this photo. "
+                 + "It does not measure whether a person can see that difference, and it is not a judgment about the room.")
+        }
         if record.steps.quality.status != .completed {
             append(.limitation, "limitation.quality_not_checked", "Photo quality has not been checked in this build.")
         }

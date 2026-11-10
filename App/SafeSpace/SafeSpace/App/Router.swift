@@ -1,12 +1,13 @@
 import Foundation
 import Observation
+import SafeSpaceCore
 
 /// Every screen in the navigation skeleton. Routes carry IDs, never model values,
 /// so a screen always reads the current data from `AppModel`.
 enum Route: Hashable {
     case room(Room.ID)
     case newAssessment(roomID: Room.ID)
-    case assessment(roomID: Room.ID, assessmentID: Assessment.ID)
+    case assessment(roomID: Room.ID, assessmentID: AssessmentSummary.ID)
 }
 
 @MainActor

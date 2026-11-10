@@ -91,7 +91,7 @@ final class QualityCheckTests: XCTestCase {
         XCTAssertEqual(w(0.5, blur: p.blurVarianceMin), [])            // exclusive
         XCTAssertEqual(w(0.5, side: p.minLongSidePx), [])              // exclusive
         // Every warning at once comes out sorted by its JSON string.
-        let all = w(0.1, dark: 0.5, bright: 0.5, blur: 0, side: 10)
+        let all = w(p.darkMeanLuminanceMax / 2, dark: 0.5, bright: 0.5, blur: 0, side: 10)
         XCTAssertEqual(all.map(\.rawValue), ["blurry", "low_resolution", "overexposed", "too_dark", "underexposed"])
     }
 

@@ -1,11 +1,27 @@
 import Foundation
 
-/// Quality thresholds (contract §4.5). These are the v1 PLACEHOLDERS. They get calibrated
-/// against the Task 22 labels, and changing any default bumps `QualityCheck.methodVersion`.
-/// They are written into `method.params` so every saved result records the thresholds it used.
-/// Warning rules are in `QualityCheck.warnings(for:params:)`.
+/// Quality thresholds (contract §4.5). They are written into `method.params`, so every saved
+/// result records the thresholds it used. Warning rules are in `QualityCheck.warnings(for:params:)`.
+/// Final calibration uses the Task 22 labels. After the first tagged build with completed quality
+/// results, changing any default bumps `QualityCheck.methodVersion`.
+///
+/// `darkMeanLuminanceMax` = 0.08, set in Task 19 (Nov 9). The contract's 0.25 placeholder flagged
+/// 18 of the 39 photos labelled acceptable. Evidence for 0.08:
+/// - Cameras expose an average scene to about 18% middle gray (Y ≈ 0.18), so 0.25 sits above a
+///   normal exposure.
+/// - On the room-photo set, the photos labelled dark measure 0.018 and 0.045. The darkest
+///   acceptable ones (hallway7, livingRoom4) measure 0.118 and look properly exposed.
+///   0.08 is about the log-scale midpoint, roughly 1.2 stops under middle gray.
+/// - Darkening 31 acceptable photos in linear light, re-quantizing to 8-bit and brightening back
+///   moves colors by a mean ΔE_OK of 0.005 or less down to Y ≈ 0.02, and still under 0.02
+///   (about one just-noticeable difference) below that. So 8-bit rounding alone isn't the limit;
+///   noise and white balance in real dim photos are, and those come from the labelled photos.
+/// - hallway8 is labelled dark at 0.157 but is a lamp-lit hall with visible colors. It isn't
+///   flagged; this disputed label goes to Task 22.
+/// Only two clearly dark photos exist so far, so recheck once Task 22 adds more.
+/// The other four defaults are still the contract's v1 placeholders.
 public struct QualityParams: Codable, Sendable, Equatable {
-    public var darkMeanLuminanceMax = 0.25      // too_dark when mean luminance ≤ this
+    public var darkMeanLuminanceMax = 0.08      // too_dark when mean luminance ≤ this
     public var brightMeanLuminanceMin = 0.80    // too_bright when mean luminance ≥ this
     public var clippedShareMax = 0.05           // over/underexposed when a clipped share > this
     public var blurVarianceMin = 100.0          // blurry when Laplacian variance < this

@@ -18,9 +18,10 @@ import Foundation
 //    ignores the eligibility mask. It also ignores alpha: photos are opaque, and quality is about
 //    what the camera captured.
 //
-// 4. Thresholds are the contract's v1 placeholders (`QualityParams.v1`). They are calibrated
-//    after Task 22 finalizes the quality labels. Any change to a default threshold or to the math
-//    here must bump `methodVersion`, so results from different tags are never mixed (§4.4).
+// 4. Thresholds live in `QualityParams.v1`. too_dark was calibrated in this task (evidence on
+//    `QualityParams`); the rest are still the contract's placeholders until Task 22 labels are
+//    final. Once a tag ships completed quality results, any change to a default threshold or to
+//    the math here must bump `methodVersion`, so results from different tags are never mixed (§4.4).
 
 public struct QualityMetrics: Codable, Sendable, Equatable {
     /// Mean relative luminance Y (linear sRGB, Rec. 709 / sRGB weights), 0–1, over all pixels.

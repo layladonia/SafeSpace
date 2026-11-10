@@ -102,7 +102,8 @@ public enum ColorSpace {
         )
     }
 
-    private static func sRGBToLinear(_ value: Double) -> Double {
+    // Internal (not private) so QualityCheck's luminance table uses the exact same curve.
+    static func sRGBToLinear(_ value: Double) -> Double {
         if value <= 0.04045 {
             return value / 12.92
         } else {

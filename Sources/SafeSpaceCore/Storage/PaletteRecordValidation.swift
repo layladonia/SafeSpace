@@ -1,7 +1,7 @@
 import Foundation
 
-// Week-2 validator: handles the palette path and skipped later steps. It is not
-// the complete future validator for completed quality/privacy/contrast modules.
+// Validator for the palette and quality paths (quality since Task 19) and skipped later steps.
+// It is not yet the complete validator for completed privacy/contrast modules.
 public enum AssessmentValidator {
     public static func validate(_ r: AssessmentRecord) throws {
         var errors: [String] = []
@@ -37,10 +37,9 @@ public enum AssessmentValidator {
         envelope(r.steps.palette, "palette"); envelope(r.steps.quality, "quality")
         envelope(r.steps.anonymization, "anonymization"); envelope(r.steps.contrast, "contrast")
         // Later complete result models are intentionally not implemented by this patch.
-        require(r.steps.quality.status == .skipped, "This build cannot validate completed quality results")
         require(r.steps.anonymization.status != .completed, "This build cannot validate completed anonymization results")
         require(r.steps.contrast.status == .skipped, "This build cannot validate completed contrast results")
-        require([ReasonCode.notImplemented, .disabledByUser].contains(r.steps.quality.reason ?? .notRequested), "Invalid quality reason")
+        validateQuality(r, require)
         if r.steps.anonymization.status == .skipped {
             require([ReasonCode.notImplemented, .disabledByUser].contains(r.steps.anonymization.reason ?? .notRequested), "Invalid privacy reason")
         } else {
@@ -105,6 +104,45 @@ public enum AssessmentValidator {
         }
         if !errors.isEmpty { throw SafeSpaceError.validation(errors) }
     }
+    /// Quality step (Task 19, contract §3.3 and §4.5). A completed step must carry a decodable
+    /// result whose warnings are exactly what its own metrics and recorded params imply. That
+    /// catches hand-edited files and a result saved with one threshold set and labelled with another.
+    private static func validateQuality(_ r: AssessmentRecord, _ require: (Bool, String) -> Void) {
+        let q = r.steps.quality
+        switch q.status {
+        case .skipped:
+            require([ReasonCode.notImplemented, .disabledByUser].contains(q.reason ?? .notRequested), "Invalid quality reason")
+        case .failed:
+            require(q.reason == .qualityCheckFailed, "Invalid quality failure reason")
+        case .completed:
+            break
+        }
+        if let method = q.method {
+            require(method.name == QualityCheck.methodName && method.version == QualityCheck.methodVersion,
+                    "Unknown quality method or version")
+        }
+        guard q.status == .completed else { return }
+        guard let params = try? q.method?.params.decoded(as: QualityParams.self),
+              let result = try? q.result?.decoded(as: QualityResult.self) else {
+            require(false, "Unreadable quality params or result"); return
+        }
+        let m = result.metrics
+        require([m.meanLuminance, m.clippedDarkShare, m.clippedBrightShare, m.blurLaplacianVariance].allSatisfy(\.isFinite),
+                "Nonfinite quality metric")
+        require((0...1).contains(m.meanLuminance), "Invalid mean luminance")
+        require((0...1).contains(m.clippedDarkShare) && (0...1).contains(m.clippedBrightShare)
+                && m.clippedDarkShare + m.clippedBrightShare <= 1 + 1e-12, "Invalid clipped shares")
+        require(m.blurLaplacianVariance >= 0, "Negative blur variance")
+        require(m.originalLongSidePx == max(r.image.original.width, r.image.original.height),
+                "Quality long side disagrees with original image size")
+        require(result.warnings == QualityCheck.warnings(for: m, params: params),
+                "Quality warnings disagree with metrics and thresholds")
+        // Decision log Oct 11 / contract D3: a quality warning never blocks, so this is always true in v1.
+        require(result.userContinued, "user_continued must be true in v1")
+        if !result.warnings.isEmpty {
+            require(r.findings.contains { $0.templateId == "limitation.quality_warning" }, "Missing quality limitation")
+        }
+    }
     private static func resolves(_ pointer: String, in root: Any) -> Bool {
         if pointer.isEmpty { return true }
         guard pointer.hasPrefix("/") else { return false }
@@ -139,7 +177,9 @@ enum EarlyBuildWireCheck {
         let steps = try object(r["steps"], "quality anonymization palette contrast")
         for key in ["quality", "anonymization", "palette", "contrast"] {
             let step = try object(steps[key], "status reason duration_ms method result")
-            if key != "palette", !(step["result"] is NSNull) {
+            // Palette and (since Task 19) quality have full result shapes. The other steps are
+            // still only allowed to be null until their tasks land.
+            if key != "palette", key != "quality", !(step["result"] is NSNull) {
                 throw SafeSpaceError.validation(["This early-build reader does not support completed \(key) results"])
             }
             if let method = step["method"] as? [String: Any] {
@@ -147,6 +187,13 @@ enum EarlyBuildWireCheck {
                 if key == "palette" {
                     _ = try object(method["params"], "space k_initial seed max_iterations merge_delta_e_ok min_share sample_stride")
                 }
+                if key == "quality" {
+                    _ = try object(method["params"], "dark_mean_luminance_max bright_mean_luminance_min clipped_share_max blur_variance_min min_long_side_px")
+                }
+            }
+            if key == "quality", let result = step["result"] as? [String: Any] {
+                _ = try object(result, "metrics warnings user_continued")
+                _ = try object(result["metrics"], "mean_luminance clipped_dark_share clipped_bright_share blur_laplacian_variance original_long_side_px")
             }
             if key == "palette", let result = step["result"] as? [String: Any] {
                 _ = try object(result, "mask_applied eligible_pixel_count dropped_share colors label_map_file")

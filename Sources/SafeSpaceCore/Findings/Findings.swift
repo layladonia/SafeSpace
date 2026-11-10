@@ -46,6 +46,16 @@ public enum Findings {
                        sources(i))
             }
         }
+        // Quality sentences (Task 19) come after the palette and before the limitations: one per
+        // warning, in the stored (sorted) warning order. They are minimal first-draft templates.
+        // D owns the final wording, and any rewording bumps that template's version.
+        if let quality = record.qualityResult {
+            for (i, warning) in quality.warnings.enumerated() {
+                let t = qualityTemplate(warning, quality.metrics)
+                append(.quality, "quality.\(warning.rawValue)", t.text,
+                       ["/steps/quality/result/warnings/\(i)", "/steps/quality/result/metrics/\(t.metric)"])
+            }
+        }
         append(.limitation, "limitation.photo_not_room",
                "These colors describe this photo, not the room itself. Lighting and the camera change how colors look.")
         if record.steps.anonymization.status != .completed {
@@ -54,11 +64,41 @@ public enum Findings {
         }
         append(.limitation, "limitation.palette_not_contrast",
                "Pixel shares are not measurements of physical surface area. A palette does not compare the color difference between two selected areas.")
+        // Contract §4.9 conditional limitation. It says the user may continue, because quality
+        // never blocks (decision log Oct 11).
+        if let quality = record.qualityResult, !quality.warnings.isEmpty {
+            append(.limitation, "limitation.quality_warning",
+                   "Photo quality issues can change the colors measured here. You can retake the photo or keep these results.")
+        }
         if record.steps.quality.status != .completed {
             append(.limitation, "limitation.quality_not_checked", "Photo quality has not been checked in this build.")
         }
         return findings
     }
+
+    /// One sentence per quality warning, plus the metric it is sourced from (S4 checks each
+    /// sentence against that pointer). Wording rules match the palette templates: describe the
+    /// photo, not the room or the person, and use no banned terms (checked in FindingsTests).
+    static func qualityTemplate(_ warning: QualityWarning, _ m: QualityMetrics) -> (text: String, metric: String) {
+        switch warning {
+        case .tooDark:
+            return ("This photo is dark overall, so its colors may look darker than they are in the room.", "mean_luminance")
+        case .tooBright:
+            return ("This photo is very bright overall, so its colors may look lighter than they are in the room.", "mean_luminance")
+        case .overexposed:
+            return ("\(capitalized(percent(m.clippedBrightShare))) of the photo is so bright it shows as plain white, so color detail there is lost.",
+                    "clipped_bright_share")
+        case .underexposed:
+            return ("\(capitalized(percent(m.clippedDarkShare))) of the photo is so dark it shows as plain black, so color detail there is lost.",
+                    "clipped_dark_share")
+        case .blurry:
+            return ("This photo looks blurry. Blur can blend nearby colors together.", "blur_laplacian_variance")
+        case .lowResolution:
+            return ("This photo is small (\(m.originalLongSidePx) pixels on its longest side), so small areas of color may be missed.",
+                    "original_long_side_px")
+        }
+    }
+    static func capitalized(_ s: String) -> String { s.prefix(1).uppercased() + s.dropFirst() }
 
     /// "about 41%", or "less than 1%" so a small share is never shown as 0%.
     static func percent(_ share: Double) -> String {

@@ -1,11 +1,15 @@
 import Foundation
 
+/// Quality thresholds (contract §4.5). These are the v1 PLACEHOLDERS. They get calibrated
+/// against the Task 22 labels, and changing any default bumps `QualityCheck.methodVersion`.
+/// They are written into `method.params` so every saved result records the thresholds it used.
+/// Warning rules are in `QualityCheck.warnings(for:params:)`.
 public struct QualityParams: Codable, Sendable, Equatable {
-    public var darkMeanLuminanceMax = 0.25
-    public var brightMeanLuminanceMin = 0.80
-    public var clippedShareMax = 0.05
-    public var blurVarianceMin = 100.0
-    public var minLongSidePx = 640
+    public var darkMeanLuminanceMax = 0.25      // too_dark when mean luminance ≤ this
+    public var brightMeanLuminanceMin = 0.80    // too_bright when mean luminance ≥ this
+    public var clippedShareMax = 0.05           // over/underexposed when a clipped share > this
+    public var blurVarianceMin = 100.0          // blurry when Laplacian variance < this
+    public var minLongSidePx = 640              // low_resolution when the original's long side < this
     public init() {}
     public static let v1 = QualityParams()
 }
@@ -65,8 +69,7 @@ public enum AssessmentPipeline {
         catch is CancellationError { throw CancellationError() }
         catch let error as SafeSpaceError { throw error }
         catch { throw SafeSpaceError.load(.unreadableData) }
-        let quality: StepRecord<ContractJSON> = .skipped(options.runQuality ? .notImplemented : .disabledByUser)
-        progress(.quality, .skipped(quality.reason!))
+        let quality = try runQuality(copy, options: options, progress: progress)
         // Week-2 scope intentionally ships only NoOpAnonymizer. Do not silently
         // accept a real anonymizer and omit its method parameters/provenance.
         let privacy: StepRecord<ContractJSON>
@@ -119,6 +122,31 @@ public enum AssessmentPipeline {
         try AssessmentValidator.validate(record)
         return PipelineOutput(record: record, storedImage: privacy.status == .failed ? nil : copy.image,
                               mask: mask, labelMap: map, totalDurationMs: elapsed(start))
+    }
+    /// Quality step (Task 19). It runs on the unmasked working copy and only ever warns: a
+    /// completed step with warnings still lets the palette run (decision log Oct 11). An error
+    /// inside the check becomes `failed / quality_check_failed`, with method and duration kept
+    /// (contract §4.4), and never stops the assessment. Only cancellation propagates.
+    private static func runQuality(_ copy: WorkingCopy, options: PipelineOptions,
+                                   progress: @Sendable (StepID, StepState) -> Void) throws -> StepRecord<ContractJSON> {
+        guard options.runQuality else {
+            progress(.quality, .skipped(.disabledByUser))
+            return .skipped(.disabledByUser)
+        }
+        let method = MethodRecord(name: QualityCheck.methodName, version: QualityCheck.methodVersion,
+                                  params: try ContractJSON.encoding(options.qualityParams))
+        progress(.quality, .running)
+        let start = Date()
+        do {
+            let result = try QualityCheck.run(copy, params: options.qualityParams)
+            progress(.quality, .completed)
+            return .init(status: .completed, reason: nil, durationMs: elapsed(start), method: method,
+                         result: try ContractJSON.encoding(result))
+        } catch is CancellationError { throw CancellationError() }
+        catch {
+            progress(.quality, .failed(.qualityCheckFailed))
+            return .init(status: .failed, reason: .qualityCheckFailed, durationMs: elapsed(start), method: method, result: nil)
+        }
     }
     private static func elapsed(_ start: Date) -> Int { max(0, Int(Date().timeIntervalSince(start) * 1000)) }
 }

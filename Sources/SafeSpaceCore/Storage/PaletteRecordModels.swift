@@ -194,7 +194,7 @@ public struct Finding: Codable, Equatable, Sendable, Identifiable {
 }
 public struct AssessmentSteps: Codable, Equatable, Sendable {
     public var quality: StepRecord<ContractJSON>
-    public var anonymization: StepRecord<ContractJSON>
+    public var anonymization: StepRecord<AnonymizationResult>
     public var palette: StepRecord<PaletteResult>
     public var contrast: StepRecord<ContractJSON>
 }

@@ -38,13 +38,44 @@ public enum AssessmentValidator {
         envelope(r.steps.anonymization, "anonymization"); envelope(r.steps.contrast, "contrast")
         // Later complete result models are intentionally not implemented by this patch.
         require(r.steps.quality.status == .skipped, "This build cannot validate completed quality results")
-        require(r.steps.anonymization.status != .completed, "This build cannot validate completed anonymization results")
+        
         require(r.steps.contrast.status == .skipped, "This build cannot validate completed contrast results")
         require([ReasonCode.notImplemented, .disabledByUser].contains(r.steps.quality.reason ?? .notRequested), "Invalid quality reason")
-        if r.steps.anonymization.status == .skipped {
-            require([ReasonCode.notImplemented, .disabledByUser].contains(r.steps.anonymization.reason ?? .notRequested), "Invalid privacy reason")
-        } else {
+        switch r.steps.anonymization.status {
+        case .skipped:
+            require([ReasonCode.notImplemented, .disabledByUser].contains(r.steps.anonymization.reason ?? .notRequested), "Invalid privacy skip reason")
+        case .failed:
             require([ReasonCode.anonymizationFailed, .detectionUnavailable].contains(r.steps.anonymization.reason ?? .notRequested), "Invalid privacy failure")
+            require(!r.image.stored, "Failed anonymization cannot retain a photo")
+        case .completed:
+            require(r.steps.anonymization.method?.name == "vision_faces_people"
+                    && r.steps.anonymization.method?.version == 1, "Invalid privacy method")
+            if let result = r.steps.anonymization.result {
+                require(result.maskedShare.isFinite && (0...1).contains(result.maskedShare), "Invalid masked share")
+                require((result.maskedShare > 0) == !result.regions.isEmpty, "Mask share disagrees with regions")
+                require(result.regions.allSatisfy(PrivacyMasking.valid), "Invalid detected region")
+                if result.regions.allSatisfy(PrivacyMasking.valid) {
+                    let w = r.image.workingCopy.width, h = r.image.workingCopy.height
+                    if w > 0 && h > 0 && w <= 1024 && h <= 1024 {
+                        let mask = EligibilityMask.all(width: w, height: h).excluding(result.regions.map(\.rect))
+                        require(abs(result.maskedShare - Double(w*h - mask.eligibleCount) / Double(w*h)) <= 1e-12,
+                                "Mask share differs from rectangle union")
+                        if let palette = r.steps.palette.result {
+                            require(palette.eligiblePixelCount == mask.eligibleCount, "Palette counts include masked pixels")
+                            require(palette.maskApplied == (mask.eligibleCount != w*h), "Incorrect mask_applied")
+                        }
+                    } else { require(false, "Invalid privacy working dimensions") }
+                }
+                if result.mayBeIncomplete || result.regions.isEmpty {
+                    require(r.findings.contains { $0.templateId == "limitation.anonymization_incomplete" }, "Missing detection limitation")
+                }
+            }
+            if let params = r.steps.anonymization.method?.params,
+               let bytes = try? JSONEncoder().encode(params),
+               let decoded = try? AssessmentJSON.decoder().decode(AnonymizationParams.self, from: bytes) {
+                require(decoded.isValid, "Invalid anonymization parameters")
+                if !decoded.detectPeople { require(r.steps.anonymization.result?.mayBeIncomplete == true, "Face-only detection must report incomplete") }
+            } else { require(false, "Missing anonymization parameters") }
         }
         require([ReasonCode.notRequested, .imageUnavailable, .notImplemented, .dependencyFailed].contains(r.steps.contrast.reason ?? .disabledByUser), "Invalid contrast skip reason")
         require(["heic", "jpeg", "png", "other"].contains(r.image.original.format), "Invalid original format")
@@ -139,13 +170,28 @@ enum EarlyBuildWireCheck {
         let steps = try object(r["steps"], "quality anonymization palette contrast")
         for key in ["quality", "anonymization", "palette", "contrast"] {
             let step = try object(steps[key], "status reason duration_ms method result")
-            if key != "palette", !(step["result"] is NSNull) {
+            if key != "palette" && key != "anonymization", !(step["result"] is NSNull) {
                 throw SafeSpaceError.validation(["This early-build reader does not support completed \(key) results"])
             }
             if let method = step["method"] as? [String: Any] {
                 _ = try object(method, "name version params")
                 if key == "palette" {
                     _ = try object(method["params"], "space k_initial seed max_iterations merge_delta_e_ok min_share sample_stride")
+                }
+            }
+            if key == "anonymization" {
+                if let method = step["method"] as? [String: Any], step["status"] as? String == "completed" {
+                    _ = try object(method["params"], "detect_faces detect_people box_padding blur_radius_px")
+                }
+                if let result = step["result"] as? [String: Any] {
+                    _ = try object(result, "regions masked_share may_be_incomplete")
+                    guard let regions = result["regions"] as? [Any] else {
+                        throw SafeSpaceError.validation(["regions must be an array"])
+                    }
+                    for region in regions {
+                        let r = try object(region, "kind rect confidence")
+                        _ = try object(r["rect"], "x y width height")
+                    }
                 }
             }
             if key == "palette", let result = step["result"] as? [String: Any] {

@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Contract v1 anonymization step - integration fragment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "reason",
+    "duration_ms",
+    "method",
+    "result"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "completed",
+        "failed",
+        "skipped"
+      ]
+    },
+    "reason": {},
+    "duration_ms": {},
+    "method": {},
+    "result": {}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "status": {
+          "const": "completed"
+        },
+        "reason": {
+          "type": "null"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "method": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version",
+            "params"
+          ],
+          "properties": {
+            "name": {
+              "const": "vision_faces_people"
+            },
+            "version": {
+              "const": 1
+            },
+            "params": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "detect_faces",
+                "detect_people",
+                "box_padding",
+                "blur_radius_px"
+              ],
+              "properties": {
+                "detect_faces": {
+                  "type": "boolean"
+                },
+                "detect_people": {
+                  "type": "boolean"
+                },
+                "box_padding": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "blur_radius_px": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                }
+              },
+              "anyOf": [
+                {
+                  "properties": {
+                    "detect_faces": {
+                      "const": true
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "detect_people": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "regions",
+            "masked_share",
+            "may_be_incomplete"
+          ],
+          "properties": {
+            "regions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "rect",
+                  "confidence"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "face",
+                      "person"
+                    ]
+                  },
+                  "rect": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "x",
+                      "y",
+                      "width",
+                      "height"
+                    ],
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "width": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
+                        "exclusiveMinimum": 0
+                      },
+                      "height": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
+                        "exclusiveMinimum": 0
+                      }
+                    }
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              }
+            },
+            "masked_share": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "may_be_incomplete": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "skipped"
+        },
+        "reason": {
+          "enum": [
+            "not_implemented",
+            "disabled_by_user"
+          ]
+        },
+        "duration_ms": {
+          "type": "null"
+        },
+        "method": {
+          "type": "null"
+        },
+        "result": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "failed"
+        },
+        "reason": {
+          "enum": [
+            "detection_unavailable",
+            "anonymization_failed"
+          ]
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "method": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version",
+            "params"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "params": {
+              "type": "object"
+            }
+          }
+        },
+        "result": {
+          "type": "null"
+        }
+      }
+    }
+  ]
+}

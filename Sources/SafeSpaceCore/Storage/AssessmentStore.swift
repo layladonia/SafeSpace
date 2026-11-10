@@ -60,11 +60,35 @@ enum StoreRules {
     /// image to keep (D2: not after a failed anonymization; `storedImage` is nil then), storage
     /// fills in the file names and contrast becomes `not_requested`.
     ///
-    /// PRIVACY (until Task 21): with NoOpAnonymizer the step is `skipped`, so per D2 the working
-    /// copy is stored *without* faces or people hidden. Use only test photos without people.
-    /// Once VisionAnonymizer lands, `storedImage` is the anonymized copy and this needs no change.
+    /// Task 21: default pipeline supplies only the processed image. Failed privacy steps
+    /// cannot store a photo. Explicit NoOp dev/CLI opt-out retains the contract D2 behavior.
     static func recordToSave(_ output: PipelineOutput) throws -> AssessmentRecord {
         var record = output.record
+        if record.steps.anonymization.status == .failed && output.storedImage != nil {
+            throw SafeSpaceError.validation(["Cannot save a photo after anonymization failed"])
+        }
+        if record.steps.anonymization.status == .completed, let result = record.steps.anonymization.result {
+            guard result.regions.allSatisfy(PrivacyMasking.valid),
+                  output.mask.width == record.image.workingCopy.width,
+                  output.mask.height == record.image.workingCopy.height else {
+                throw SafeSpaceError.validation(["Invalid saved privacy mask"])
+            }
+            let expected = EligibilityMask.all(width: output.mask.width, height: output.mask.height)
+                .excluding(result.regions.map(\.rect))
+            guard output.mask == expected else { throw SafeSpaceError.validation(["Saved mask differs from detection regions"]) }
+        }
+        if let image = output.storedImage {
+            guard image.width == record.image.workingCopy.width, image.height == record.image.workingCopy.height,
+                  output.mask.width == image.width, output.mask.height == image.height else {
+                throw SafeSpaceError.validation(["Saved photo dimensions disagree"])
+            }
+        }
+        if let labels = output.labelMap {
+            guard labels.count == output.mask.width * output.mask.height,
+                  labels.indices.allSatisfy({ output.mask.eligible[$0] || labels[$0] == 255 }) else {
+                throw SafeSpaceError.validation(["Invalid masked label map"])
+            }
+        }
         if output.storedImage != nil {
             record.image.stored = true
             record.image.storedFile = storedImageFile

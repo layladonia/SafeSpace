@@ -43,7 +43,7 @@ public struct PipelineOptions: Sendable {
     public var paletteParams: PaletteParams = .v1
     public var qualityParams: QualityParams = .v1
     public var runQuality = true
-    public var anonymizer: any Anonymizer = NoOpAnonymizer()
+    public var anonymizer: any Anonymizer = VisionAnonymizer()
     public init() {}
 }
 public struct PipelineOutput: Sendable {
@@ -67,19 +67,49 @@ public enum AssessmentPipeline {
         catch { throw SafeSpaceError.load(.unreadableData) }
         let quality: StepRecord<ContractJSON> = .skipped(options.runQuality ? .notImplemented : .disabledByUser)
         progress(.quality, .skipped(quality.reason!))
-        // Week-2 scope intentionally ships only NoOpAnonymizer. Do not silently
-        // accept a real anonymizer and omit its method parameters/provenance.
-        let privacy: StepRecord<ContractJSON>
+        var analysisImage = copy.image
+        var storedImage: SRGBImage?
+        var mask = EligibilityMask.all(width: copy.image.width, height: copy.image.height)
+        let privacy: StepRecord<AnonymizationResult>
         if options.anonymizer is NoOpAnonymizer {
+            // Explicit dev/CLI opt-out only; preserve §3.4 / D2 skipped behavior.
             privacy = .skipped(.notImplemented)
+            storedImage = copy.image
             progress(.anonymization, .skipped(.notImplemented))
         } else {
-            privacy = .init(status: .failed, reason: .anonymizationFailed, durationMs: 0,
-                method: .init(name: options.anonymizer.methodName, version: options.anonymizer.methodVersion,
-                              params: .object([:])), result: nil)
-            progress(.anonymization, .failed(.anonymizationFailed))
+            let privacyStart = Date()
+            let privacyParams = (options.anonymizer as? VisionAnonymizer)?.params ?? .v1
+            let json: ContractJSON
+            if let bytes = try? AssessmentJSON.encoder().encode(privacyParams),
+               let encoded = try? JSONDecoder().decode(ContractJSON.self, from: bytes) {
+                json = encoded
+            } else { json = .object([:]) }
+            let method = MethodRecord(name: options.anonymizer.methodName,
+                version: options.anonymizer.methodVersion, params: json)
+            progress(.anonymization, .running)
+            do {
+                let output = try await options.anonymizer.anonymize(copy)
+                try PrivacyMasking.validate(output, against: copy.image)
+                try Task.checkCancellation()
+                analysisImage = output.anonymizedImage
+                storedImage = output.anonymizedImage
+                mask = output.mask
+                privacy = .init(status: .completed, reason: nil, durationMs: elapsed(privacyStart),
+                                method: method, result: output.result)
+                progress(.anonymization, .completed)
+            } catch is CancellationError { throw CancellationError() }
+            catch {
+                let reason: ReasonCode
+                if let failure = error as? AnonymizationError, case .detectionUnavailable = failure {
+                    reason = .detectionUnavailable
+                } else { reason = .anonymizationFailed }
+                privacy = .init(status: .failed, reason: reason, durationMs: elapsed(privacyStart),
+                                method: method, result: nil)
+                // §3.4: palette continues unmasked. D2: never persist this photo.
+                storedImage = nil
+                progress(.anonymization, .failed(reason))
+            }
         }
-        let mask = EligibilityMask.all(width: copy.image.width, height: copy.image.height)
         let extractor = makePaletteExtractor(options.paletteMethod)
         let encodedParams = try AssessmentJSON.encoder().encode(options.paletteParams)
         let params = try JSONDecoder().decode(ContractJSON.self, from: encodedParams)
@@ -89,7 +119,7 @@ public enum AssessmentPipeline {
         var palette: StepRecord<PaletteResult>
         var map: [UInt8]?
         do {
-            let output = try extractor.extract(copy.image, mask: mask, params: options.paletteParams)
+            let output = try extractor.extract(analysisImage, mask: mask, params: options.paletteParams)
             palette = .init(status: .completed, reason: nil, durationMs: elapsed(paletteStart),
                             method: method, result: output.result)
             map = output.labelMap
@@ -117,7 +147,7 @@ public enum AssessmentPipeline {
         try Task.checkCancellation()
         // Structural programming errors must not be hidden as successful output.
         try AssessmentValidator.validate(record)
-        return PipelineOutput(record: record, storedImage: privacy.status == .failed ? nil : copy.image,
+        return PipelineOutput(record: record, storedImage: storedImage,
                               mask: mask, labelMap: map, totalDurationMs: elapsed(start))
     }
     private static func elapsed(_ start: Date) -> Int { max(0, Int(Date().timeIntervalSince(start) * 1000)) }

@@ -29,6 +29,14 @@ struct AssessmentResultView: View {
                             Text(photoSummary(assessment.record.image)).font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    if assessment.record.steps.anonymization.status == .failed {
+                        Section("Privacy check failed") {
+                            Text(assessment.record.steps.anonymization.reason == .detectionUnavailable
+                                 ? "Face and person detection couldn't run on this device."
+                                 : "The app couldn't hide faces and people.")
+                            Text("No photo copy was saved. The color results include the unmasked photo pixels.")
+                        }
+                    }
                     if let result = assessment.record.steps.palette.result {
                         Section {
                             ForEach(result.colors) { color in PaletteSwatchRow(color: color) }
@@ -143,6 +151,11 @@ struct AssessmentResultView: View {
                 Text(reason == .notImplemented ? "This check isn't available in this version."
                     : reason == .notRequested ? "No areas have been compared yet."
                     : reason == .imageUnavailable ? "The saved photo isn't available, so areas can't be compared."
+                    : reason == .detectionUnavailable ? "Face and person detection couldn't run on this device."
+                    : reason == .anonymizationFailed ? "The app couldn't hide faces and people."
+                    : reason == .disabledByUser ? "You turned this check off."
+                    : reason == .dependencyFailed ? "This couldn't run because an earlier step failed."
+                    : reason == .noEligiblePixels ? "Too little of the photo was left to analyze after hiding people."
                     : reason.rawValue.replacingOccurrences(of: "_", with: " "))
                     .font(.caption).foregroundStyle(.secondary)
             }

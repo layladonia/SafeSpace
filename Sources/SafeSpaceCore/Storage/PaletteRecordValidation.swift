@@ -1,7 +1,7 @@
 import Foundation
 
-// Week-2 validator: handles the palette path and skipped later steps. It is not
-// the complete future validator for completed quality/privacy/contrast modules.
+// Validates palette, quality, and rectangle-based anonymization records.
+// Completed contrast results are not supported in this build.
 public enum AssessmentValidator {
     public static func validate(_ r: AssessmentRecord) throws {
         var errors: [String] = []
@@ -36,11 +36,9 @@ public enum AssessmentValidator {
         }
         envelope(r.steps.palette, "palette"); envelope(r.steps.quality, "quality")
         envelope(r.steps.anonymization, "anonymization"); envelope(r.steps.contrast, "contrast")
-        // Later complete result models are intentionally not implemented by this patch.
-        require(r.steps.quality.status == .skipped, "This build cannot validate completed quality results")
         
         require(r.steps.contrast.status == .skipped, "This build cannot validate completed contrast results")
-        require([ReasonCode.notImplemented, .disabledByUser].contains(r.steps.quality.reason ?? .notRequested), "Invalid quality reason")
+        validateQuality(r, require)
         switch r.steps.anonymization.status {
         case .skipped:
             require([ReasonCode.notImplemented, .disabledByUser].contains(r.steps.anonymization.reason ?? .notRequested), "Invalid privacy skip reason")
@@ -48,8 +46,13 @@ public enum AssessmentValidator {
             require([ReasonCode.anonymizationFailed, .detectionUnavailable].contains(r.steps.anonymization.reason ?? .notRequested), "Invalid privacy failure")
             require(!r.image.stored, "Failed anonymization cannot retain a photo")
         case .completed:
-            require(r.steps.anonymization.method?.name == "vision_faces_people"
-                    && r.steps.anonymization.method?.version == 1, "Invalid privacy method")
+            if let method = r.steps.anonymization.method {
+                require(!method.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "Missing privacy method name")
+                require(method.version > 0, "Invalid privacy method version")
+                if method.name == "vision_faces_people" {
+                    require(method.version == 1, "Unsupported Vision anonymization version")
+                }
+            }
             if let result = r.steps.anonymization.result {
                 require(result.maskedShare.isFinite && (0...1).contains(result.maskedShare), "Invalid masked share")
                 require((result.maskedShare > 0) == !result.regions.isEmpty, "Mask share disagrees with regions")
@@ -70,12 +73,18 @@ public enum AssessmentValidator {
                     require(r.findings.contains { $0.templateId == "limitation.anonymization_incomplete" }, "Missing detection limitation")
                 }
             }
-            if let params = r.steps.anonymization.method?.params,
-               let bytes = try? JSONEncoder().encode(params),
-               let decoded = try? AssessmentJSON.decoder().decode(AnonymizationParams.self, from: bytes) {
-                require(decoded.isValid, "Invalid anonymization parameters")
-                if !decoded.detectPeople { require(r.steps.anonymization.result?.mayBeIncomplete == true, "Face-only detection must report incomplete") }
-            } else { require(false, "Missing anonymization parameters") }
+            if let method = r.steps.anonymization.method, method.name == "vision_faces_people" {
+                do {
+                    let decoded = try method.params.decoded(as: AnonymizationParams.self)
+                    require(decoded.isValid, "Invalid Vision anonymization parameters")
+                    if !decoded.detectPeople {
+                        require(r.steps.anonymization.result?.mayBeIncomplete == true,
+                                "Face-only detection must report incomplete")
+                    }
+                } catch {
+                    require(false, "Unreadable Vision anonymization parameters: \(error)")
+                }
+            }
         }
         require([ReasonCode.notRequested, .imageUnavailable, .notImplemented, .dependencyFailed].contains(r.steps.contrast.reason ?? .disabledByUser), "Invalid contrast skip reason")
         require(["heic", "jpeg", "png", "other"].contains(r.image.original.format), "Invalid original format")
@@ -136,6 +145,49 @@ public enum AssessmentValidator {
         }
         if !errors.isEmpty { throw SafeSpaceError.validation(errors) }
     }
+    /// Preserves main's Task 19 quality validation and old-version compatibility.
+    private static func validateQuality(_ r: AssessmentRecord, _ require: (Bool, String) -> Void) {
+        let q = r.steps.quality
+        switch q.status {
+        case .skipped:
+            require([ReasonCode.notImplemented, .disabledByUser].contains(q.reason ?? .notRequested), "Invalid quality reason")
+        case .failed:
+            require(q.reason == .qualityCheckFailed, "Invalid quality failure reason")
+        case .completed:
+            break
+        }
+        if let method = q.method {
+            require(method.name == QualityCheck.methodName && (1...QualityCheck.methodVersion).contains(method.version),
+                    "Unknown quality method or version")
+        }
+        guard q.status == .completed, let method = q.method, let rawResult = q.result else { return }
+        let params: QualityParams, result: QualityResult
+        do {
+            params = try method.params.decoded(as: QualityParams.self)
+            result = try rawResult.decoded(as: QualityResult.self)
+        } catch {
+            require(false, "Unreadable quality params or result: \(error)"); return
+        }
+        let m = result.metrics
+        require([m.meanLuminance, m.clippedDarkShare, m.clippedBrightShare, m.blurLaplacianVariance].allSatisfy(\.isFinite),
+                "Nonfinite quality metric")
+        require((0...1).contains(m.meanLuminance), "Invalid mean luminance")
+        require((0...1).contains(m.clippedDarkShare) && (0...1).contains(m.clippedBrightShare)
+                && m.clippedDarkShare + m.clippedBrightShare <= 1 + 1e-12, "Invalid clipped shares")
+        require(m.blurLaplacianVariance >= 0, "Negative blur variance")
+        require(m.originalLongSidePx == max(r.image.original.width, r.image.original.height),
+                "Quality long side disagrees with original image size")
+        if method.version == QualityCheck.methodVersion {
+            require(result.warnings == QualityCheck.warnings(for: m, params: params),
+                    "Quality warnings disagree with metrics and thresholds")
+        }
+        require(result.warnings == result.warnings.sorted { $0.rawValue < $1.rawValue }
+                && Set(result.warnings).count == result.warnings.count, "Quality warnings must be sorted and unique")
+        require(result.userContinued, "user_continued must be true in v1")
+        if !result.warnings.isEmpty {
+            require(r.findings.contains { $0.templateId == "limitation.quality_warning" }, "Missing quality limitation")
+        }
+    }
     private static func resolves(_ pointer: String, in root: Any) -> Bool {
         if pointer.isEmpty { return true }
         guard pointer.hasPrefix("/") else { return false }
@@ -170,7 +222,29 @@ enum EarlyBuildWireCheck {
         let steps = try object(r["steps"], "quality anonymization palette contrast")
         for key in ["quality", "anonymization", "palette", "contrast"] {
             let step = try object(steps[key], "status reason duration_ms method result")
-            if key != "palette" && key != "anonymization", !(step["result"] is NSNull) {
+            guard let status = step["status"] as? String else {
+                throw SafeSpaceError.validation(["Missing step status"])
+            }
+            switch status {
+            case "skipped":
+                guard step["reason"] is String, step["duration_ms"] is NSNull,
+                      step["method"] is NSNull, step["result"] is NSNull else {
+                    throw SafeSpaceError.validation(["Invalid skipped \(key) envelope"])
+                }
+            case "failed":
+                guard step["reason"] is String, let duration = step["duration_ms"], !(duration is NSNull),
+                      step["method"] is [String: Any], step["result"] is NSNull else {
+                    throw SafeSpaceError.validation(["Invalid failed \(key) envelope"])
+                }
+            case "completed":
+                guard step["reason"] is NSNull, let duration = step["duration_ms"], !(duration is NSNull),
+                      step["method"] is [String: Any], step["result"] is [String: Any] else {
+                    throw SafeSpaceError.validation(["Invalid completed \(key) envelope"])
+                }
+            default:
+                throw SafeSpaceError.validation(["Unknown step status"])
+            }
+            if key == "contrast", !(step["result"] is NSNull) {
                 throw SafeSpaceError.validation(["This early-build reader does not support completed \(key) results"])
             }
             if let method = step["method"] as? [String: Any] {
@@ -178,9 +252,17 @@ enum EarlyBuildWireCheck {
                 if key == "palette" {
                     _ = try object(method["params"], "space k_initial seed max_iterations merge_delta_e_ok min_share sample_stride")
                 }
+                if key == "quality" {
+                    _ = try object(method["params"], "dark_mean_luminance_max bright_mean_luminance_min clipped_share_max blur_variance_min min_long_side_px")
+                }
+            }
+            if key == "quality", let result = step["result"] as? [String: Any] {
+                _ = try object(result, "metrics warnings user_continued")
+                _ = try object(result["metrics"], "mean_luminance clipped_dark_share clipped_bright_share blur_laplacian_variance original_long_side_px")
             }
             if key == "anonymization" {
-                if let method = step["method"] as? [String: Any], step["status"] as? String == "completed" {
+                if let method = step["method"] as? [String: Any], step["status"] as? String == "completed",
+                   method["name"] as? String == "vision_faces_people" {
                     _ = try object(method["params"], "detect_faces detect_people box_padding blur_radius_px")
                 }
                 if let result = step["result"] as? [String: Any] {
@@ -208,3 +290,4 @@ enum EarlyBuildWireCheck {
         for finding in findings { _ = try object(finding, "id kind template_id template_version text sources") }
     }
 }
+

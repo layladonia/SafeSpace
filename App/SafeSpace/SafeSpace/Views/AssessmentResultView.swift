@@ -52,7 +52,18 @@ struct AssessmentResultView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    let colorFindings = assessment.record.findings.filter { $0.kind != .limitation }
+                    // Task 19: quality sentences get their own section so they aren't listed as
+                    // color results. Task 20 replaces this with the full warning and guidance UI.
+                    let qualityFindings = assessment.record.findings.filter { $0.kind == .quality }
+                    if !qualityFindings.isEmpty {
+                        Section("Photo quality") {
+                            ForEach(qualityFindings) { finding in
+                                Text(finding.text)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    let colorFindings = assessment.record.findings.filter { $0.kind != .limitation && $0.kind != .quality }
                     if !colorFindings.isEmpty {
                         Section("What the colors show") {
                             ForEach(colorFindings) { finding in

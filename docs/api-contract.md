@@ -244,7 +244,7 @@ v1 **replaces** v0 (`origin/assessmentJson`). Because v0 was never written by sh
 {
   "status": "completed", "reason": null, "duration_ms": 38,
   "method": { "name": "quality_basic", "version": 1, "params": {
-      "dark_mean_luminance_max": 0.25, "bright_mean_luminance_min": 0.80,
+      "dark_mean_luminance_max": 0.08, "bright_mean_luminance_min": 0.80,
       "clipped_share_max": 0.05, "blur_variance_min": 100.0, "min_long_side_px": 640 } },
   "result": {
     "metrics": {
@@ -260,8 +260,8 @@ v1 **replaces** v0 (`origin/assessmentJson`). Because v0 was never written by sh
 }
 ```
 
-- `mean_luminance` is relative luminance Y (linear sRGB, 0–1) over the working copy. Clipping counts pixels with every channel ≤ 2 (dark) or ≥ 253 (bright), in 8-bit. Blur is the variance of a 3×3 Laplacian on 8-bit luma, computed on the working copy. **All thresholds are placeholders until A calibrates them on the 40-image set (Week 5).** They live in `params` so they are recorded.
-- `warnings`: closed enum, sorted, no duplicates: `too_dark`, `too_bright`, `overexposed`, `underexposed`, `blurry`, `low_resolution`. An empty array means no warnings.
+- `mean_luminance` is relative luminance Y (linear sRGB, 0–1) over the working copy. Clipping counts pixels with every channel ≤ 2 (dark) or ≥ 253 (bright), in 8-bit. Blur is the population variance of the 3×3 Laplacian `[0 1 0; 1 -4 1; 0 1 0]` on 8-bit luma, computed on the working copy over every pixel with reflect-101 borders. Luma is BT.601 in OpenCV's fixed point, `(4899R + 9617G + 1868B + 8192) >> 14`, so the value equals `cv2.Laplacian(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY), cv2.CV_64F).var()`. All metrics use exact integer math in pure Swift (no Accelerate), so they are bit-identical on every platform. Warnings: `too_dark` if mean ≤ `dark_mean_luminance_max`; `too_bright` if mean ≥ `bright_mean_luminance_min`; `overexposed` / `underexposed` if the bright / dark clipped share > `clipped_share_max`; `blurry` if variance < `blur_variance_min`; `low_resolution` if the original long side < `min_long_side_px`. **`dark_mean_luminance_max` was calibrated to 0.08 in Task 19 (evidence in `QualityParams`); the other thresholds are placeholders until A calibrates them on the 40-image set (Week 5).** They live in `params` so they are recorded.
+- `warnings`: closed enum, sorted by string value, no duplicates: `too_dark`, `too_bright`, `overexposed`, `underexposed`, `blurry`, `low_resolution`. An empty array means no warnings.
 - `user_continued`: `true` once analysis continues past a warning. In v1 it is always `true` (the plan says the user can always continue). It is recorded for S7's "user can always continue".
 - Resolution is judged on the **original** size, since the working copy is always ≤ 1024.
 
@@ -389,7 +389,7 @@ v1 **replaces** v0 (`origin/assessmentJson`). Because v0 was never written by sh
 - `sources`: [RFC 6901 JSON Pointers](https://www.rfc-editor.org/rfc/rfc6901) into this same file. Each pointer must resolve (the validator checks this). Every non-`limitation` finding needs at least one source; this is what makes S4 (text faithfulness) checkable by script.
 - The text is **stored, not regenerated** on reopen, so reopen shows exactly what was first shown (S6), even if templates change later. `template_version` records which version produced it.
 - Order in the array is display order.
-- Every assessment includes `limitation.photo_not_room`. Conditional limitations: `limitation.people_not_masked`, `limitation.anonymization_incomplete`, `limitation.quality_warning`.
+- Every assessment includes `limitation.photo_not_room`. Conditional limitations: `limitation.people_not_masked`, `limitation.anonymization_incomplete`, `limitation.quality_warning`, `limitation.quality_not_checked` (quality skipped), `limitation.quality_check_failed` (quality failed). Quality findings use template IDs `quality.<warning>`, one per stored warning.
 - Findings for a contrast measurement are appended when the measurement is added, and their sources point at `/steps/contrast/result/measurements/<i>/delta_e_2000`.
 - No finding may contain a banned term (`Findings.bannedTerms`, owned by D, case-insensitive whole-word match). The list starts with: lux, safe, unsafe, suitable, unsuitable, dementia, autism, autistic, diagnose, certify, compliant, WCAG pass, calming, therapeutic. Core enforces this in `Findings.generate` and **in the validator**, so text that bypasses the templates is still caught.
 
@@ -806,6 +806,7 @@ These were found while writing this contract. Each needs an owner and an issue. 
 |---|---|---|
 | Oct 16 | v1 proposed | Kloie (D), drafted with Claude |
 | Oct 26 | §4.3 `resize_method` is `area_average_gamma_encoded` (each output pixel averages every source pixel it covers; replaces 4-tap bilinear). Out-of-range EXIF orientation is treated as 1. | Kloie (D) |
+| Nov 9 | §4.5 pins the luma formula, Laplacian kernel, border mode, warning comparison rules and warning sort order (clarification, no shape change). Blur uses pure-Swift integer math, not Accelerate, so Windows builds match. `dark_mean_luminance_max` default 0.25 → 0.08 (calibrated on the room-photo set; no completed quality results existed yet, so method version stays 1) §4.9 lists the quality limitations and `quality.<warning>` finding IDs. §7.1 quality columns are now filled by the CLI (Task 19). | Kloie |
 | Nov 8 | §4.3 `original.color_space` adds `adobe_rgb` (additive). The loader detects Adobe RGB and converts it to sRGB; the validator now accepts the value (PR #11). | Kloie (D) |
 
 ## 13. Approval

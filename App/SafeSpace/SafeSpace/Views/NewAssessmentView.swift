@@ -15,7 +15,6 @@ struct NewAssessmentView: View {
     @State private var isAnalyzing = false
     @State private var isShowingCamera = false
     @State private var analysisTask: Task<Void, Never>?
-    @State private var completedNavigation = false
 
     var body: some View {
         ScrollView {
@@ -36,7 +35,7 @@ struct NewAssessmentView: View {
                 .disabled(photo != nil || isLoading || isAnalyzing)
                 Text("One photo per assessment. Analysis runs on this iPhone.")
                     .font(.subheadline).foregroundStyle(.secondary)
-                Text("Development build: people are not hidden or excluded, and the analyzed photo copy is saved on this iPhone. Use test photos without people.")
+                Text("Detected faces and people are blurred in the saved copy and excluded from color statistics. Detection may miss people. Your original photo is not saved by this app; the source photo in Photos is unchanged.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if isLoading { ProgressView("Loading photo…") }
                 if isAnalyzing { ProgressView("Analyzing colors…") }
@@ -69,6 +68,7 @@ struct NewAssessmentView: View {
         .task(id: selection) {
             guard let selection else { return }
             isLoading = true; errorMessage = nil
+            defer { isLoading = false }
             do {
                 guard let data = try await selection.loadTransferable(type: Data.self) else {
                     throw PhotoImportError.unreadableImage
@@ -77,7 +77,6 @@ struct NewAssessmentView: View {
                 photo = try ImportedPhoto(data: data, contentType: selection.supportedContentTypes.first)
             } catch is CancellationError { return }
             catch { errorMessage = error.localizedDescription }
-            isLoading = false
         }
         .fullScreenCover(isPresented: $isShowingCamera) {
             CameraPicker { image in
@@ -89,23 +88,26 @@ struct NewAssessmentView: View {
         }
         .onDisappear {
             analysisTask?.cancel()
-            if completedNavigation { photo = nil; selection = nil }
+            photo = nil; selection = nil
         }
     }
     @MainActor private func analyze() {
         guard let input = photo, !isAnalyzing else { return }
         isAnalyzing = true; errorMessage = nil
+        // The task owns the input only while processing. Drop the view's original preview
+        // and PhotosPicker reference immediately, including on errors/cancellation.
+        photo = nil; selection = nil
         analysisTask = Task { @MainActor in
             defer { isAnalyzing = false; analysisTask = nil }
             do {
                 let id = try await model.analyzeAndSave(to: roomID, photo: input)
                 try Task.checkCancellation()
-                completedNavigation = true
                 photo = nil; selection = nil
                 router.replaceTop(with: .assessment(roomID: roomID, assessmentID: id))
             } catch is CancellationError {
                 photo = nil; selection = nil
             } catch {
+                photo = nil; selection = nil
                 errorMessage = error.localizedDescription
             }
         }

@@ -64,6 +64,15 @@ public enum Findings {
             append(.limitation, "limitation.people_not_masked",
                    "Faces and people have not been hidden or excluded from these color statistics.")
         }
+        if record.steps.anonymization.status == .completed, let privacy = record.steps.anonymization.result {
+            if privacy.mayBeIncomplete || privacy.regions.isEmpty {
+                let text = privacy.regions.isEmpty
+                    ? "No faces or people were detected in this photo. Detection can miss people; this does not prove that none are present."
+                    : "Detected face and person regions were blurred and excluded from the color statistics. Detection can miss people, so some may remain visible. Color shares describe only the pixels left for analysis."
+                append(.limitation, "limitation.anonymization_incomplete", text,
+                       ["/steps/anonymization/result/may_be_incomplete", "/steps/anonymization/result/regions"])
+            }
+        }
         append(.limitation, "limitation.palette_not_contrast",
                "Pixel shares are not measurements of physical surface area. A palette does not compare the color difference between two selected areas.")
         // Contract §4.9 conditional limitation. It says the user may continue, because quality

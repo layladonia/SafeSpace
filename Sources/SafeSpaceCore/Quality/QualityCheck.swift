@@ -91,6 +91,10 @@ public enum QualityCheck {
         if m.clippedDarkShare > p.clippedShareMax { w.append(.underexposed) }
         if m.blurLaplacianVariance < p.blurVarianceMin { w.append(.blurry) }
         if m.originalLongSidePx < p.minLongSidePx { w.append(.lowResolution) }
+        // Contract §4.5 defines the stored order as sorted by the JSON string, so a Python reader
+        // can check it without knowing Swift declaration order. Renaming a wire value is a
+        // breaking contract change (§12) that updates fixtures, and QualityCheckTests pins the
+        // current order, so a rename can't silently reorder stored files.
         return w.sorted { $0.rawValue < $1.rawValue }
     }
 

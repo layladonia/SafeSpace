@@ -140,24 +140,36 @@ public enum AssessmentPipeline {
                               mask: mask, labelMap: map, totalDurationMs: elapsed(start))
     }
     /// Quality step (Task 19). It runs on the unmasked working copy and only ever warns: a
-    /// completed step with warnings still lets the palette run (decision log Oct 11). An error
-    /// inside the check becomes `failed / quality_check_failed`, with method and duration kept
-    /// (contract §4.4), and never stops the assessment. Only cancellation propagates.
+    /// completed step with warnings still lets the palette run (decision log Oct 11). Any error
+    /// while measuring or encoding the result becomes `failed / quality_check_failed`, with method
+    /// and duration kept (contract §4.4), and the assessment continues. Two things propagate:
+    /// - cancellation;
+    /// - non-finite `qualityParams`, thrown up front as `SafeSpaceError.validation`. That is a
+    ///   caller configuration error, not a quality-check failure: a failed step must still record
+    ///   its params, and JSON can't represent NaN or infinity, so no valid record could be written.
+    ///   The app and CLI only ever pass `.v1`. (Review of PR #13, point 1.)
     private static func runQuality(_ copy: WorkingCopy, options: PipelineOptions,
                                    progress: @Sendable (StepID, StepState) -> Void) throws -> StepRecord<ContractJSON> {
         guard options.runQuality else {
             progress(.quality, .skipped(.disabledByUser))
             return .skipped(.disabledByUser)
         }
-        let method = MethodRecord(name: QualityCheck.methodName, version: QualityCheck.methodVersion,
-                                  params: try ContractJSON.encoding(options.qualityParams))
+        let p = options.qualityParams
+        guard [p.darkMeanLuminanceMax, p.brightMeanLuminanceMin, p.clippedShareMax, p.blurVarianceMin].allSatisfy(\.isFinite),
+              let params = try? ContractJSON.encoding(p) else {
+            throw SafeSpaceError.validation(["Quality params must be finite numbers"])
+        }
+        let method = MethodRecord(name: QualityCheck.methodName, version: QualityCheck.methodVersion, params: params)
         progress(.quality, .running)
         let start = Date()
         do {
-            let result = try QualityCheck.run(copy, params: options.qualityParams)
+            // Build the whole record before reporting `.completed`, so a failure while encoding
+            // can't produce a completed → failed sequence (review point 2; same order as palette).
+            let result = try ContractJSON.encoding(QualityCheck.run(copy, params: p))
+            let record = StepRecord<ContractJSON>(status: .completed, reason: nil, durationMs: elapsed(start),
+                                                  method: method, result: result)
             progress(.quality, .completed)
-            return .init(status: .completed, reason: nil, durationMs: elapsed(start), method: method,
-                         result: try ContractJSON.encoding(result))
+            return record
         } catch is CancellationError { throw CancellationError() }
         catch {
             progress(.quality, .failed(.qualityCheckFailed))

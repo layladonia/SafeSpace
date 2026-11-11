@@ -171,6 +171,61 @@ final class QualityCheckTests: XCTestCase {
         XCTAssertTrue(Findings.qualityTemplate(.underexposed, m).text.hasPrefix("Less than 1%"))
     }
 
+    // Review of PR #13, point 1: non-finite params are a clear caller error, not a raw EncodingError.
+    func testNonFiniteParamsThrowValidationError() async throws {
+        var options = PipelineOptions(); options.qualityParams.blurVarianceMin = .nan
+        do {
+            _ = try await AssessmentPipeline.run(imageData: solid(40, 16, 16).pngData(), source: .file,
+                                                 roomID: "cli", producer: producer, options: options)
+            XCTFail("Expected a validation error")
+        } catch let error as SafeSpaceError {
+            guard case .validation = error else { return XCTFail("Wrong error: \(error)") }
+        }
+    }
+
+    // Point 2: quality reports running then completed, never completed followed by failed.
+    func testProgressSequenceForQuality() async throws {
+        final class Log: @unchecked Sendable { var states: [StepState] = []; let lock = NSLock() }
+        let log = Log()
+        _ = try await AssessmentPipeline.run(imageData: solid(40, 16, 16).pngData(), source: .file, roomID: "cli",
+                                             producer: producer) { step, state in
+            if step == .quality { log.lock.lock(); log.states.append(state); log.lock.unlock() }
+        }
+        XCTAssertEqual(log.states, [.running, .completed])
+    }
+
+    // Point 3: a failed check gets its own limitation, not "not checked".
+    func testFailedQualityHasFailedLimitation() async throws {
+        var r = try await AssessmentPipeline.run(imageData: solid(40, 16, 16).pngData(), source: .file,
+                                                 roomID: "cli", producer: producer).record
+        r.steps.quality = .init(status: .failed, reason: .qualityCheckFailed, durationMs: 1,
+                                method: r.steps.quality.method, result: nil)
+        r.findings = Findings.generate(for: r)
+        XCTAssertTrue(r.findings.contains { $0.templateId == "limitation.quality_check_failed" })
+        XCTAssertFalse(r.findings.contains { $0.templateId == "limitation.quality_not_checked" })
+        XCTAssertFalse(r.findings.contains { $0.kind == .quality })
+        try AssessmentValidator.validate(r)
+        XCTAssertEqual(r.overallState, .partial)
+    }
+
+    // Point 4: known versions are accepted; a version from a newer build is rejected.
+    func testValidatorQualityVersionRange() async throws {
+        var r = try await AssessmentPipeline.run(imageData: solid(40, 16, 16).pngData(), source: .file,
+                                                 roomID: "cli", producer: producer).record
+        try AssessmentValidator.validate(r)
+        r.steps.quality.method?.version = QualityCheck.methodVersion + 1
+        XCTAssertThrowsError(try AssessmentValidator.validate(r))
+    }
+
+    // Point 7: template IDs are explicit, and today equal "quality." + the wire value.
+    func testQualityTemplateIdsArePinned() {
+        let m = QualityMetrics(meanLuminance: 0.5, clippedDarkShare: 0, clippedBrightShare: 0,
+                               blurLaplacianVariance: 0, originalLongSidePx: 1)
+        for w in QualityWarning.allCases {
+            XCTAssertEqual(Findings.qualityTemplate(w, m).templateId, "quality." + w.rawValue)
+        }
+    }
+
     /// Task 19 "done when": the metrics return values on the room-photo set. This loads each
     /// photo exactly as the pipeline does and prints one row per image for the PR / calibration.
     /// Opt-in (`SAFESPACE_DATASET_TESTS=1 swift test --filter testMetricsOnRoomPhotoSet`): decoding

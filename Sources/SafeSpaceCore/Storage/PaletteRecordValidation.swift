@@ -117,14 +117,21 @@ public enum AssessmentValidator {
         case .completed:
             break
         }
+        // Accept every version this build knows (1...current), not only the current one, so
+        // assessments saved before a later threshold or algorithm change still reopen (S6).
+        // Future versions are rejected: this build can't know their rules (review point 4).
         if let method = q.method {
-            require(method.name == QualityCheck.methodName && method.version == QualityCheck.methodVersion,
+            require(method.name == QualityCheck.methodName && (1...QualityCheck.methodVersion).contains(method.version),
                     "Unknown quality method or version")
         }
-        guard q.status == .completed else { return }
-        guard let params = try? q.method?.params.decoded(as: QualityParams.self),
-              let result = try? q.result?.decoded(as: QualityResult.self) else {
-            require(false, "Unreadable quality params or result"); return
+        guard q.status == .completed, let method = q.method, let rawResult = q.result else { return }
+        let params: QualityParams, result: QualityResult
+        do {
+            params = try method.params.decoded(as: QualityParams.self)
+            result = try rawResult.decoded(as: QualityResult.self)
+        } catch {
+            // Keep the decoder's message (which field, which type) instead of one generic line.
+            require(false, "Unreadable quality params or result: \(error)"); return
         }
         let m = result.metrics
         require([m.meanLuminance, m.clippedDarkShare, m.clippedBrightShare, m.blurLaplacianVariance].allSatisfy(\.isFinite),
@@ -135,8 +142,14 @@ public enum AssessmentValidator {
         require(m.blurLaplacianVariance >= 0, "Negative blur variance")
         require(m.originalLongSidePx == max(r.image.original.width, r.image.original.height),
                 "Quality long side disagrees with original image size")
-        require(result.warnings == QualityCheck.warnings(for: m, params: params),
-                "Quality warnings disagree with metrics and thresholds")
+        // Re-deriving warnings uses this build's rules, which are only guaranteed to match the
+        // current version. Older-version records still get the structural checks below.
+        if method.version == QualityCheck.methodVersion {
+            require(result.warnings == QualityCheck.warnings(for: m, params: params),
+                    "Quality warnings disagree with metrics and thresholds")
+        }
+        require(result.warnings == result.warnings.sorted { $0.rawValue < $1.rawValue }
+                && Set(result.warnings).count == result.warnings.count, "Quality warnings must be sorted and unique")
         // Decision log Oct 11 / contract D3: a quality warning never blocks, so this is always true in v1.
         require(result.userContinued, "user_continued must be true in v1")
         if !result.warnings.isEmpty {

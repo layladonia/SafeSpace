@@ -49,10 +49,12 @@ public enum Findings {
         // Quality sentences (Task 19) come after the palette and before the limitations: one per
         // warning, in the stored (sorted) warning order. They are minimal first-draft templates.
         // D owns the final wording, and any rewording bumps that template's version.
-        if let quality = record.qualityResult {
+        // Decoded once per call: `qualityResult` does a JSON round trip (review point 6).
+        let quality = record.qualityResult
+        if let quality {
             for (i, warning) in quality.warnings.enumerated() {
                 let t = qualityTemplate(warning, quality.metrics)
-                append(.quality, "quality.\(warning.rawValue)", t.text,
+                append(.quality, t.templateId, t.text,
                        ["/steps/quality/result/warnings/\(i)", "/steps/quality/result/metrics/\(t.metric)"])
             }
         }
@@ -66,12 +68,20 @@ public enum Findings {
                "Pixel shares are not measurements of physical surface area. A palette does not compare the color difference between two selected areas.")
         // Contract §4.9 conditional limitation. It says the user may continue, because quality
         // never blocks (decision log Oct 11).
-        if let quality = record.qualityResult, !quality.warnings.isEmpty {
+        if let quality, !quality.warnings.isEmpty {
             append(.limitation, "limitation.quality_warning",
                    "Photo quality issues can change the colors measured here. You can retake the photo or keep these results.")
         }
-        if record.steps.quality.status != .completed {
+        // Skipped and failed get different sentences, so a check that ran and errored isn't
+        // described as "not checked" next to a "failed" status row (review point 3).
+        switch record.steps.quality.status {
+        case .skipped:
             append(.limitation, "limitation.quality_not_checked", "Photo quality has not been checked in this build.")
+        case .failed:
+            append(.limitation, "limitation.quality_check_failed",
+                   "The photo quality check could not finish, so problems such as darkness or blur may not be noted here.")
+        case .completed:
+            break
         }
         return findings
     }
@@ -79,7 +89,22 @@ public enum Findings {
     /// One sentence per quality warning, plus the metric it is sourced from (S4 checks each
     /// sentence against that pointer). Wording rules match the palette templates: describe the
     /// photo, not the room or the person, and use no banned terms (checked in FindingsTests).
-    static func qualityTemplate(_ warning: QualityWarning, _ m: QualityMetrics) -> (text: String, metric: String) {
+    /// Template IDs are written out per case instead of built from the warning's JSON string, so
+    /// renaming a wire value can't silently move a template ID (review point 7).
+    static func qualityTemplate(_ warning: QualityWarning, _ m: QualityMetrics) -> (templateId: String, text: String, metric: String) {
+        let t = qualityText(warning, m)
+        let id: String
+        switch warning {
+        case .tooDark: id = "quality.too_dark"
+        case .tooBright: id = "quality.too_bright"
+        case .overexposed: id = "quality.overexposed"
+        case .underexposed: id = "quality.underexposed"
+        case .blurry: id = "quality.blurry"
+        case .lowResolution: id = "quality.low_resolution"
+        }
+        return (id, t.text, t.metric)
+    }
+    static func qualityText(_ warning: QualityWarning, _ m: QualityMetrics) -> (text: String, metric: String) {
         switch warning {
         case .tooDark:
             return ("This photo is dark overall, so its colors may look darker than they are in the room.", "mean_luminance")

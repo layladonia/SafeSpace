@@ -28,6 +28,9 @@ public struct VisionAnonymizer: Anonymizer {
     public var methodName: String { "vision_faces_people" }
     public var methodVersion: Int { 1 }
     public init(params: AnonymizationParams = .v1) { self.params = params }
+    public func encodedParameters() throws -> ContractJSON {
+        try ContractJSON.encoding(params)
+    }
     public func anonymize(_ copy: WorkingCopy) async throws -> AnonymizationOutput {
         guard params.isValid else { throw AnonymizationError.invalidParameters }
         try Task.checkCancellation()
@@ -51,9 +54,10 @@ public struct VisionAnonymizer: Anonymizer {
         if params.detectFaces { requests.append(faces) }
         if params.detectPeople { requests += [fullPeople, upperPeople] }
         do { try VNImageRequestHandler(cgImage: cg, orientation: .up, options: [:]).perform(requests) }
+        catch is CancellationError { throw CancellationError() }
         catch {
             try Task.checkCancellation()
-            throw AnonymizationError.detectionUnavailable
+            throw error
         }
         try Task.checkCancellation()
         var regions: [DetectedRegion] = []

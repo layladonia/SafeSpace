@@ -70,10 +70,13 @@ final class PaletteEngineTests: XCTestCase {
     func testPipelineRecordRoundTripAndNullKeys() async throws {
         let input = image(Array(repeating: [255,0,0], count: 16)).pngData()
         let producer = Producer(kind: "app", appVersion: "test", coreVersion: SafeSpaceCore.version, device: "test", os: "test")
+        var options = PipelineOptions()
+        options.runQuality = false
+        options.anonymizer = NoOpAnonymizer()
         let output = try await AssessmentPipeline.run(imageData: input, source: .library,
-            roomID: UUID().uuidString.lowercased(), producer: producer)
+            roomID: UUID().uuidString.lowercased(), producer: producer, options: options)
         XCTAssertEqual(output.record.overallState, .complete)
-        XCTAssertEqual(output.record.steps.quality.status, .completed)   // Task 19: quality runs by default
+        XCTAssertEqual(output.record.steps.quality.status, .skipped)
         XCTAssertEqual(output.record.steps.anonymization.status, .skipped)
         let data = try AssessmentJSON.encode(output.record)
         XCTAssertEqual(try AssessmentJSON.decode(data), output.record)
@@ -88,7 +91,10 @@ final class PaletteEngineTests: XCTestCase {
         // Every value ImageLoader can write to original.color_space must pass the validator.
         let input = image(Array(repeating: [255,0,0], count: 16)).pngData()
         let producer = Producer(kind: "cli", appVersion: nil, coreVersion: SafeSpaceCore.version, device: "test", os: "test")
-        var record = try await AssessmentPipeline.run(imageData: input, source: .file, roomID: "cli", producer: producer).record
+        var options = PipelineOptions()
+        options.runQuality = false
+        options.anonymizer = NoOpAnonymizer()
+        var record = try await AssessmentPipeline.run(imageData: input, source: .file, roomID: "cli", producer: producer, options: options).record
         for space in ["untagged", "srgb", "display_p3", "adobe_rgb", "other"] {
             record.image.original.colorSpace = space
             XCTAssertNoThrow(try AssessmentJSON.decode(AssessmentJSON.encode(record)), space)

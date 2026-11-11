@@ -18,6 +18,31 @@ final class AnonymizationTests: XCTestCase {
             producer: .init(kind: "app", appVersion: "test", coreVersion: SafeSpaceCore.version,
                             device: "test", os: "test"), options: options)
     }
+    func testQualityAndAnonymizationCompleteTogether() async throws {
+        let output = try await run(FixtureAnonymizer(regions: [region()]))
+        XCTAssertEqual(output.record.steps.quality.status, .completed)
+        XCTAssertEqual(output.record.steps.anonymization.status, .completed)
+        XCTAssertEqual(try AssessmentJSON.decode(AssessmentJSON.encode(output.record)), output.record)
+    }
+    func testNonDefaultVisionParametersAreRecorded() async throws {
+        var params = AnonymizationParams.v1
+        params.blurRadiusPx = 7
+        params.boxPadding = 0.2
+        let output = try await run(FixtureAnonymizer(regions: [region()], params: params))
+        let method = try XCTUnwrap(output.record.steps.anonymization.method)
+        XCTAssertEqual(try method.params.decoded(as: AnonymizationParams.self), params)
+    }
+    func testOtherRectangleMethodRoundTrips() async throws {
+        let output = try await run(FixtureAnonymizer(regions: [region()], methodName: "fixture_rectangles"))
+        XCTAssertEqual(output.record.steps.anonymization.status, .completed)
+        XCTAssertEqual(output.record.steps.anonymization.method?.name, "fixture_rectangles")
+        XCTAssertEqual(try AssessmentJSON.decode(AssessmentJSON.encode(output.record)), output.record)
+    }
+    func testDetectionFailedIsNotUnavailable() async throws {
+        let output = try await run(FixtureAnonymizer(regions: [], failure: .detectionFailed))
+        XCTAssertEqual(output.record.steps.anonymization.reason, .anonymizationFailed)
+        XCTAssertNil(output.storedImage)
+    }
     func testVisionIsDefault() {
         XCTAssertTrue(PipelineOptions().anonymizer is VisionAnonymizer)
         XCTAssertEqual(AnonymizationParams.v1.boxPadding, 0.10)
@@ -135,7 +160,7 @@ final class AnonymizationTests: XCTestCase {
     }
     func testStoreRejectsPhotoAfterPrivacyFailure() async throws {
         let store = InMemoryAssessmentStore()
-        let room = try await store.createRoom(name: "Failure")
+        let room = await store.createRoom(name: "Failure")
         let output = try await run(FixtureAnonymizer(regions: [], failure: .detectionUnavailable), room: room.id)
         let bad = PipelineOutput(record: output.record, storedImage: image, mask: output.mask,
                                  labelMap: output.labelMap, totalDurationMs: 0)
@@ -170,12 +195,16 @@ private struct FixtureAnonymizer: Anonymizer {
     var failure: AnonymizationError? = nil
     var cancel = false
     var invalidOutput = false
-    var methodName: String { "vision_faces_people" }
+    var params: AnonymizationParams = .v1
+    var methodName: String = "vision_faces_people"
     var methodVersion: Int { 1 }
+    func encodedParameters() throws -> ContractJSON {
+        try ContractJSON.encoding(params)
+    }
     func anonymize(_ copy: WorkingCopy) async throws -> AnonymizationOutput {
         if cancel { throw CancellationError() }
         if let failure { throw failure }
-        let output = try PrivacyMasking.apply(copy.image, regions: regions, radius: 24, mayBeIncomplete: true)
+        let output = try PrivacyMasking.apply(copy.image, regions: regions, radius: params.blurRadiusPx, mayBeIncomplete: true)
         if invalidOutput {
             return .init(result: .init(regions: [], maskedShare: 0.5, mayBeIncomplete: true),
                          mask: output.mask, anonymizedImage: output.anonymizedImage)

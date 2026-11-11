@@ -16,6 +16,17 @@ public enum Findings {
     public static let accentShareMax = 0.10
     public static let accentChromaMin = 0.10
     public static let maxAccents = 2
+    static let contrastNotJudgmentText = "This number measures the color difference between the two selected areas in this photo. "
+        + "It does not measure whether a person can see that difference, and it is not a judgment about the room."
+
+    /// Finding for one newly added contrast measurement (contract §5.8), for
+    /// `AssessmentPipeline.addContrast` to append without regenerating every other finding.
+    public static func contrastFindings(for record: AssessmentRecord, measurementIndex: Int) -> [Finding] {
+        precondition(!containsBannedTerm(contrastNotJudgmentText))
+        return [Finding(id: "f\(record.findings.count + 1)", kind: .limitation, templateId: "limitation.contrast_not_judgment",
+                        templateVersion: 1, text: contrastNotJudgmentText,
+                        sources: ["/steps/contrast/result/measurements/\(measurementIndex)/delta_e"])]
+    }
 
     public static func generate(for record: AssessmentRecord) -> [Finding] {
         var findings: [Finding] = []
@@ -54,6 +65,10 @@ public enum Findings {
         }
         append(.limitation, "limitation.palette_not_contrast",
                "Pixel shares are not measurements of physical surface area. A palette does not compare the color difference between two selected areas.")
+        for i in (record.steps.contrast.result?.measurements ?? []).indices {
+            append(.limitation, "limitation.contrast_not_judgment", contrastNotJudgmentText,
+                   ["/steps/contrast/result/measurements/\(i)/delta_e"])
+        }
         if record.steps.quality.status != .completed {
             append(.limitation, "limitation.quality_not_checked", "Photo quality has not been checked in this build.")
         }

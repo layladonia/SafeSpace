@@ -201,10 +201,16 @@ enum AnalyzeCommand {
         let palette = r.steps.palette
         var seed = ""
         if case .object(let params)? = palette.method?.params, case .number(let s)? = params["seed"] { seed = String(UInt64(s)) }
-        // Quality and anonymization results are Tasks 19 and 21; their measurement cells stay empty.
+        // Quality cells (Task 19) come from the stored result, so the CSV can't disagree with
+        // assessment.json; they stay empty unless the step completed. Warnings are joined with ";"
+        // (contract section 7.1). Anonymization cells are Task 21 and stay empty for now.
+        let q = r.qualityResult
         return [item.imageID, variant, item.url.lastPathComponent, item.manifest?.roomType ?? "",
                 item.manifest?.peoplePresent ?? "", item.manifest?.qualityLabel ?? "", r.steps.quality.status.rawValue,
-                "", "", "", "", "", String(max(r.image.original.width, r.image.original.height)),
+                q.map { $0.warnings.map(\.rawValue).joined(separator: ";") } ?? "",
+                CSV.number(q?.metrics.meanLuminance), CSV.number(q?.metrics.clippedDarkShare),
+                CSV.number(q?.metrics.clippedBrightShare), CSV.number(q?.metrics.blurLaplacianVariance),
+                String(max(r.image.original.width, r.image.original.height)),
                 r.steps.anonymization.status.rawValue, "", "", "",
                 palette.status.rawValue, palette.method?.name ?? "", seed,
                 palette.result.map { String($0.colors.count) } ?? "", CSV.number(palette.result?.droppedShare),

@@ -389,7 +389,7 @@ v1 **replaces** v0 (`origin/assessmentJson`). Because v0 was never written by sh
 - `sources`: [RFC 6901 JSON Pointers](https://www.rfc-editor.org/rfc/rfc6901) into this same file. Each pointer must resolve (the validator checks this). Every non-`limitation` finding needs at least one source; this is what makes S4 (text faithfulness) checkable by script.
 - The text is **stored, not regenerated** on reopen, so reopen shows exactly what was first shown (S6), even if templates change later. `template_version` records which version produced it.
 - Order in the array is display order.
-- Every assessment includes `limitation.photo_not_room`. Conditional limitations: `limitation.people_not_masked`, `limitation.anonymization_incomplete`, `limitation.quality_warning`.
+- Every assessment includes `limitation.photo_not_room`. Conditional limitations: `limitation.people_not_masked`, `limitation.anonymization_incomplete`, `limitation.quality_warning`, `limitation.quality_not_checked` (quality skipped), `limitation.quality_check_failed` (quality failed). Quality findings use template IDs `quality.<warning>`, one per stored warning.
 - Findings for a contrast measurement are appended when the measurement is added, and their sources point at `/steps/contrast/result/measurements/<i>/delta_e_2000`.
 - No finding may contain a banned term (`Findings.bannedTerms`, owned by D, case-insensitive whole-word match). The list starts with: lux, safe, unsafe, suitable, unsuitable, dementia, autism, autistic, diagnose, certify, compliant, WCAG pass, calming, therapeutic. Core enforces this in `Findings.generate` and **in the validator**, so text that bypasses the templates is still caught.
 
@@ -806,7 +806,7 @@ These were found while writing this contract. Each needs an owner and an issue. 
 |---|---|---|
 | Oct 16 | v1 proposed | Kloie (D), drafted with Claude |
 | Oct 26 | §4.3 `resize_method` is `area_average_gamma_encoded` (each output pixel averages every source pixel it covers; replaces 4-tap bilinear). Out-of-range EXIF orientation is treated as 1. | Kloie (D) |
-| Nov 9 | §4.5 pins the luma formula, Laplacian kernel, border mode, warning comparison rules and warning sort order (clarification, no shape change). Blur uses pure-Swift integer math, not Accelerate, so Windows builds match. `dark_mean_luminance_max` default 0.25 → 0.08 (calibrated on the room-photo set; no completed quality results existed yet, so method version stays 1) (Task 19). | Kloie |
+| Nov 9 | §4.5 pins the luma formula, Laplacian kernel, border mode, warning comparison rules and warning sort order (clarification, no shape change). Blur uses pure-Swift integer math, not Accelerate, so Windows builds match. `dark_mean_luminance_max` default 0.25 → 0.08 (calibrated on the room-photo set; no completed quality results existed yet, so method version stays 1) §4.9 lists the quality limitations and `quality.<warning>` finding IDs. §7.1 quality columns are now filled by the CLI (Task 19). | Kloie |
 | Nov 8 | §4.3 `original.color_space` adds `adobe_rgb` (additive). The loader detects Adobe RGB and converts it to sRGB; the validator now accepts the value (PR #11). | Kloie (D) |
 
 ## 13. Approval

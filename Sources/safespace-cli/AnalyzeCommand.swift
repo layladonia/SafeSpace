@@ -110,11 +110,22 @@ enum AnalyzeCommand {
         for item in items {
             let data: Data
             do { data = try Data(contentsOf: item.url) }
-            catch { warn("\(item.url.lastPathComponent): could not read (\(error.localizedDescription))"); failed = true; continue }
+            catch {
+                warn("\(item.url.lastPathComponent): could not read (\(error.localizedDescription))")
+                failed = true
+                for variant in ["original"] + (o.variants == "s1" ? s1Variants : []) {
+                    images += CSV.row(failedRow(item, variant))
+                }
+                continue
+            }
             var inputs: [(variant: String, data: Data)] = [("original", data)]
             if o.variants == "s1" {
                 do { inputs += try s1Inputs(data) }
-                catch { warn("\(item.url.lastPathComponent): could not make S1 variants (\(error.localizedDescription))"); failed = true }
+                catch {
+                    warn("\(item.url.lastPathComponent): could not make S1 variants (\(error.localizedDescription))")
+                    failed = true
+                    for variant in s1Variants { images += CSV.row(failedRow(item, variant)) }
+                }
             }
             for input in inputs {
                 let label = "\(item.imageID)/\(input.variant)"

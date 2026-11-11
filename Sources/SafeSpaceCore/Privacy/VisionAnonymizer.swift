@@ -45,6 +45,9 @@ public struct VisionAnonymizer: Anonymizer {
                 provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent) else {
             throw AnonymizationError.detectionFailed
         }
+        // Intentionally use both full-body and upper-body detection configurations.
+        // They may provide different coverage. Overlapping regions are combined by
+        // the shared exclusion mask. Removing either requires coverage/timing tests.
         let faces = VNDetectFaceRectanglesRequest()
         let fullPeople = VNDetectHumanRectanglesRequest()
         fullPeople.upperBodyOnly = false
@@ -96,6 +99,24 @@ public struct VisionAnonymizer: Anonymizer {
 /// Pure mask/blur helpers also exercised on non-Apple platforms. Blur is a separable
 /// box blur with radius in working-copy pixels, copied back ONLY inside the mask.
 enum PrivacyMasking {
+    /// One rectangle-to-mask implementation for analysis, storage, and record validation.
+    /// Uses the existing EligibilityMask rasterization and overlap rules unchanged.
+    static func deriveMask(width: Int, height: Int,
+                           regions: [DetectedRegion]) throws -> EligibilityMask {
+        guard width > 0, height > 0,
+              !width.multipliedReportingOverflow(by: height).overflow,
+              regions.allSatisfy(valid) else {
+            throw AnonymizationError.invalidOutput
+        }
+        return EligibilityMask.all(width: width, height: height)
+            .excluding(regions.map(\.rect))
+    }
+
+    static func maskedShare(of mask: EligibilityMask) -> Double {
+        let count = mask.width * mask.height
+        return Double(count - mask.eligibleCount) / Double(count)
+    }
+
     static func topLeftPaddedRect(x: Double, y: Double, width: Double, height: Double,
                                  padding: Double) throws -> NormalizedRect {
         guard [x,y,width,height,padding].allSatisfy({ $0.isFinite }), width > 0, height > 0,
@@ -121,10 +142,10 @@ enum PrivacyMasking {
             throw AnonymizationError.invalidOutput
         }
         try Task.checkCancellation()
-        let mask = EligibilityMask.all(width: image.width, height: image.height).excluding(regions.map(\.rect))
+        let mask = try deriveMask(width: image.width, height: image.height, regions: regions)
         let excluded = image.width * image.height - mask.eligibleCount
         let result = AnonymizationResult(regions: regions,
-            maskedShare: Double(excluded) / Double(image.width * image.height), mayBeIncomplete: mayBeIncomplete)
+            maskedShare: maskedShare(of: mask), mayBeIncomplete: mayBeIncomplete)
         guard excluded > 0 else { return .init(result: result, mask: mask, anonymizedImage: image) }
         let w = image.width, h = image.height
         var horizontal = image.rgba
@@ -163,9 +184,9 @@ enum PrivacyMasking {
         guard output.anonymizedImage.width == image.width, output.anonymizedImage.height == image.height,
               output.mask.width == image.width, output.mask.height == image.height,
               output.result.regions.allSatisfy(valid) else { throw AnonymizationError.invalidOutput }
-        let expected = EligibilityMask.all(width: image.width, height: image.height)
-            .excluding(output.result.regions.map(\.rect))
-        let share = 1 - Double(expected.eligibleCount) / Double(image.width * image.height)
+        let expected = try deriveMask(width: image.width, height: image.height,
+                                      regions: output.result.regions)
+        let share = maskedShare(of: expected)
         guard expected == output.mask, output.result.maskedShare.isFinite,
               abs(share - output.result.maskedShare) <= 1e-12,
               (share > 0) == !output.result.regions.isEmpty else { throw AnonymizationError.invalidOutput }

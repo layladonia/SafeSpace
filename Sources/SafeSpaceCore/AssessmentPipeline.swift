@@ -67,7 +67,9 @@ public enum AssessmentPipeline {
     public static func run(imageData: Data, source: ImageSource, roomID: String,
                            producer: Producer, options: PipelineOptions = .init(),
                            progress: @Sendable (StepID, StepState) -> Void = { _, _ in }) async throws -> PipelineOutput {
-        // Non-main-actor asynchronous entry point. All CPU work is in Core.
+        // Non-actor-isolated async entry point. Under this package's Swift 5.9
+        // execution model, processing runs on the generic executor rather than
+        // inheriting the caller's MainActor isolation.
         let start = Date()
         try Task.checkCancellation()
         let copy: WorkingCopy
@@ -93,6 +95,8 @@ public enum AssessmentPipeline {
             progress(.anonymization, .running)
             do {
                 let output = try await options.anonymizer.anonymize(copy)
+                // Validate every anonymizer's output at the pipeline boundary,
+                // including that eligible pixels were not changed.
                 try PrivacyMasking.validate(output, against: copy.image)
                 try Task.checkCancellation()
                 analysisImage = output.anonymizedImage

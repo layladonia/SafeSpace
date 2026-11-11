@@ -73,8 +73,13 @@ enum StoreRules {
                   output.mask.height == record.image.workingCopy.height else {
                 throw SafeSpaceError.validation(["Invalid saved privacy mask"])
             }
-            let expected = EligibilityMask.all(width: output.mask.width, height: output.mask.height)
-                .excluding(result.regions.map(\.rect))
+            let expected: EligibilityMask
+            do {
+                expected = try PrivacyMasking.deriveMask(width: output.mask.width,
+                    height: output.mask.height, regions: result.regions)
+            } catch {
+                throw SafeSpaceError.validation(["Invalid saved privacy mask"])
+            }
             guard output.mask == expected else { throw SafeSpaceError.validation(["Saved mask differs from detection regions"]) }
         }
         if let image = output.storedImage {

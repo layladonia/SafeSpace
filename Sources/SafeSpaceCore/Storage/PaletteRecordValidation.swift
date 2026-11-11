@@ -60,12 +60,17 @@ public enum AssessmentValidator {
                 if result.regions.allSatisfy(PrivacyMasking.valid) {
                     let w = r.image.workingCopy.width, h = r.image.workingCopy.height
                     if w > 0 && h > 0 && w <= 1024 && h <= 1024 {
-                        let mask = EligibilityMask.all(width: w, height: h).excluding(result.regions.map(\.rect))
-                        require(abs(result.maskedShare - Double(w*h - mask.eligibleCount) / Double(w*h)) <= 1e-12,
-                                "Mask share differs from rectangle union")
-                        if let palette = r.steps.palette.result {
-                            require(palette.eligiblePixelCount == mask.eligibleCount, "Palette counts include masked pixels")
-                            require(palette.maskApplied == (mask.eligibleCount != w*h), "Incorrect mask_applied")
+                        do {
+                            let mask = try PrivacyMasking.deriveMask(width: w, height: h,
+                                                                   regions: result.regions)
+                            require(abs(result.maskedShare - PrivacyMasking.maskedShare(of: mask)) <= 1e-12,
+                                    "Mask share differs from rectangle union")
+                            if let palette = r.steps.palette.result {
+                                require(palette.eligiblePixelCount == mask.eligibleCount, "Palette counts include masked pixels")
+                                require(palette.maskApplied == (mask.eligibleCount != w*h), "Incorrect mask_applied")
+                            }
+                        } catch {
+                            require(false, "Invalid privacy mask geometry")
                         }
                     } else { require(false, "Invalid privacy working dimensions") }
                 }

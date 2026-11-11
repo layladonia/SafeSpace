@@ -119,9 +119,10 @@ public enum AssessmentPipeline {
         } else if let region1 = options.contrastRegion1, let region2 = options.contrastRegion2 {
             progress(.contrast, .running)
             let contrastStart = Date()
-            let contrastMethod = MethodRecord(name: "cielab_mean_ciede2000", version: 1, params: .object([:]))
+            let contrastMethod = MethodRecord(name: RegionContrast.methodName, version: RegionContrast.methodVersion, params: .object([:]))
             do {
-                let result = try RegionContrast.compare(copy.image, mask: mask, region1: region1, region2: region2)
+                let measurement = try RegionContrast.measure(copy.image, mask: mask, region1: region1, region2: region2)
+                let result = RegionContrastResult(colorSpace: "cielab", formula: "ciede2000", measurements: [measurement])
                 contrast = .init(status: .completed, reason: nil, durationMs: elapsed(contrastStart),
                                  method: contrastMethod, result: result)
                 progress(.contrast, .completed)
@@ -144,6 +145,33 @@ public enum AssessmentPipeline {
         try AssessmentValidator.validate(record)
         return PipelineOutput(record: record, storedImage: privacy.status == .failed ? nil : copy.image,
                               mask: mask, labelMap: map, totalDurationMs: elapsed(start))
+    }
+
+    /// Adds one contrast measurement to an already-saved record: the user drew two regions on
+    /// the region-selection screen sometime after the photo was assessed and saved. `image` and
+    /// `mask` are the ones `AssessmentStore.load` returned for this record. Bumps `updatedAt`,
+    /// appends the matching finding, and re-validates. Throws `RegionContrastError.regionTooSmall`
+    /// without touching `record` if either region has too few eligible pixels — per contract,
+    /// failed attempts are not persisted, so the caller should show the error and keep the record
+    /// it already has.
+    public static func addContrast(
+        to record: AssessmentRecord, image: SRGBImage, mask: EligibilityMask,
+        region1: NormalizedRect, region2: NormalizedRect,
+        minEligiblePixels: Int = RegionContrast.defaultMinEligiblePixels, label: String? = nil
+    ) throws -> AssessmentRecord {
+        let start = Date()
+        let measurement = try RegionContrast.measure(image, mask: mask, region1: region1, region2: region2,
+                                                      minEligiblePixels: minEligiblePixels, label: label)
+        var updated = record
+        let existing = updated.steps.contrast.result?.measurements ?? []
+        let newIndex = existing.count
+        updated.steps.contrast = .init(status: .completed, reason: nil, durationMs: elapsed(start),
+            method: MethodRecord(name: RegionContrast.methodName, version: RegionContrast.methodVersion, params: .object([:])),
+            result: RegionContrastResult(colorSpace: "cielab", formula: "ciede2000", measurements: existing + [measurement]))
+        updated.updatedAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+        updated.findings += Findings.contrastFindings(for: updated, measurementIndex: newIndex)
+        try AssessmentValidator.validate(updated)
+        return updated
     }
     private static func elapsed(_ start: Date) -> Int { max(0, Int(Date().timeIntervalSince(start) * 1000)) }
 }

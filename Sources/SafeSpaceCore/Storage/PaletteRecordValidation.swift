@@ -91,14 +91,19 @@ public enum AssessmentValidator {
             }
         }
         if let contrast = r.steps.contrast.result {
-            require(r.steps.contrast.method?.name == "cielab_mean_ciede2000", "Unknown contrast method")
-            require(r.steps.contrast.method?.version == 1, "Unsupported contrast method version")
+            require(r.steps.contrast.method?.name == RegionContrast.methodName, "Unknown contrast method")
+            require(r.steps.contrast.method?.version == RegionContrast.methodVersion, "Unsupported contrast method version")
             require(contrast.colorSpace == "cielab", "Invalid contrast color space")
             require(contrast.formula == "ciede2000", "Invalid contrast formula")
-            require(contrast.deltaE.isFinite && contrast.deltaE >= 0, "Invalid deltaE")
-            for region in [contrast.region1, contrast.region2] {
-                require(region.pixelCount > 0, "Region has no eligible pixels")
-                require([region.cielab.l, region.cielab.a, region.cielab.b].allSatisfy { $0.isFinite }, "Nonfinite region color")
+            require(!contrast.measurements.isEmpty, "Completed contrast has no measurements")
+            require(Set(contrast.measurements.map(\.measurementId)).count == contrast.measurements.count,
+                    "Duplicate contrast measurement IDs")
+            for measurement in contrast.measurements {
+                require(measurement.deltaE.isFinite && measurement.deltaE >= 0, "Invalid deltaE")
+                for region in [measurement.region1, measurement.region2] {
+                    require(region.pixelCount > 0, "Region has no eligible pixels")
+                    require([region.cielab.l, region.cielab.a, region.cielab.b].allSatisfy { $0.isFinite }, "Nonfinite region color")
+                }
             }
         }
         require(Set(r.findings.map(\.id)).count == r.findings.count, "Duplicate finding IDs")
@@ -171,11 +176,17 @@ enum EarlyBuildWireCheck {
                 }
             }
             if key == "contrast", let result = step["result"] as? [String: Any] {
-                _ = try object(result, "color_space formula region1 region2 delta_e")
-                for regionKey in ["region1", "region2"] {
-                    let region = try object(result[regionKey], "rect pixel_count cielab")
-                    _ = try object(region["rect"], "x y width height")
-                    _ = try object(region["cielab"], "l a b")
+                _ = try object(result, "color_space formula measurements")
+                guard let measurements = result["measurements"] as? [Any] else {
+                    throw SafeSpaceError.validation(["measurements must be an array"])
+                }
+                for measurement in measurements {
+                    let m = try object(measurement, "measurement_id created_at label region1 region2 delta_e")
+                    for regionKey in ["region1", "region2"] {
+                        let region = try object(m[regionKey], "rect pixel_count cielab")
+                        _ = try object(region["rect"], "x y width height")
+                        _ = try object(region["cielab"], "l a b")
+                    }
                 }
             }
         }

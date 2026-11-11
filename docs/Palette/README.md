@@ -182,14 +182,13 @@ The contract specifies direct region comparison from eligible working-copy pixel
 
 Keeping a small red group does not reduce the accuracy of that separate calculation. Missing a palette swatch must not make the object's region unavailable for measurement. CIEDE2000 photographic color difference must not be presented as a validated room-safety or accessibility judgment.
 
-The averaging-then-CIEDE2000 step is implemented in `Sources/SafeSpaceCore/Color/RegionContrast.swift` (`RegionContrast.compare`), wired into `AssessmentPipeline` via `PipelineOptions.contrastRegion1`/`contrastRegion2`. **The region-selection screen itself (drawing the two boxes on the photo) is not implemented here** — that UI work still needs to call this function. See "Calling region contrast from the UI" below.
+The averaging-then-CIEDE2000 step is implemented in `Sources/SafeSpaceCore/Color/RegionContrast.swift` (`RegionContrast.measure`), callable either up front via `PipelineOptions.contrastRegion1`/`contrastRegion2` (first measurement, taken during the initial `AssessmentPipeline.run`) or any time afterward via `AssessmentPipeline.addContrast` (every later measurement, appended to an already-saved record). **The region-selection screen itself (drawing the two boxes on the photo) is not implemented here** — that UI work still needs to call these functions. See "Calling region contrast from the UI" below.
+
+A region must have at least `RegionContrast.defaultMinEligiblePixels` (100) eligible pixels or `measure`/`addContrast` throws `RegionContrastError.regionTooSmall(region:)`; show that as "draw a larger box," not a generic error.
 
 ### Calling region contrast from the UI
 
-The region-selection screen only needs to produce two `NormalizedRect` values (0-1 fractions of
-the photo's width/height, same shape already used for anonymization boxes) and set them on
-`PipelineOptions` before calling `AssessmentPipeline.run`, exactly like `AppModel.analyzeAndAddAssessment`
-already sets `paletteMethod` etc:
+**First measurement, at capture time:** if the region-selection screen runs right after taking the photo (before the first save), produce two `NormalizedRect` values (0-1 fractions of the photo's width/height, same shape already used for anonymization boxes) and set them on `PipelineOptions` before calling `AssessmentPipeline.run`, exactly like `AppModel.analyzeAndAddAssessment` already sets `paletteMethod` etc:
 
 ```swift
 var options = PipelineOptions()
@@ -202,18 +201,35 @@ let output = try await AssessmentPipeline.run(
 ```
 
 Leave both `nil` (the default) until the user has actually drawn two boxes — that's what keeps
-`steps.contrast` at `skipped(.notRequested)` instead of running on garbage coordinates. Do not
-call `RegionContrast.compare` directly from the UI; always go through `PipelineOptions` so the
-pipeline records duration, method, and the `limitation.contrast_not_judgment` finding, and so the
-result passes `AssessmentValidator`.
+`steps.contrast` at `skipped(.notRequested)` instead of running on garbage coordinates.
 
-After the run, read the result back out of the record for display:
+**Any later measurement, on an already-saved assessment:** the user reopens a saved assessment and draws two (more) boxes. Load the record's stored image/mask (`AssessmentStore.load`), call `AssessmentPipeline.addContrast`, then persist the result through the store:
 
 ```swift
-let result = output.record.steps.contrast.result   // RegionContrastResult?, nil unless .completed
-// result?.colorSpace == "cielab", result?.formula == "ciede2000", result?.deltaE
-// result?.region1.cielab / result?.region2.cielab for the two averaged Lab values
+let stored = try await store.load(assessmentID: id)   // StoredAssessment: record, image, mask, labelMap
+let updated = try AssessmentPipeline.addContrast(
+    to: stored.record, image: stored.image!, mask: stored.mask!,
+    region1: wallBox, region2: floorBox, label: "wall vs floor"   // label is optional, nil is fine
+)
+try await store.update(updated)
 ```
+
+`addContrast` throws (and leaves the record untouched — nothing is saved) if a region is too small;
+catch that before calling `store.update`. Don't call `RegionContrast.measure` directly from the UI in
+either flow — always go through `PipelineOptions`/`addContrast` so duration, method, the
+`limitation.contrast_not_judgment` finding, and `AssessmentValidator` all stay correct.
+
+After either path, read measurements back out of the record for display:
+
+```swift
+let measurements = output.record.steps.contrast.result?.measurements ?? []   // [], not nil, unless .completed
+// measurements.last?.deltaE, .region1.cielab / .region2.cielab for the two averaged Lab values
+// measurements.last?.label — nil unless you passed one to addContrast
+```
+
+Each call appends one `ContrastMeasurement` to this array — there is no limit today, so a UI that
+lets a user compare multiple region pairs on one photo is already supported by the data model, not
+just the first-at-capture-time one.
 
 `NormalizedRect`'s coordinates are the same (0,0)-top-left, row-0-is-top-of-photo convention the
 working copy already uses (see "Preprocessing and algorithm" above) — the box the user drags on
@@ -228,7 +244,7 @@ the same working-copy-oriented image (not the raw camera buffer before EXIF corr
 | Quality metrics | Skipped/not_implemented, or disabled_by_user |
 | Anonymization | NoOpAnonymizer; skipped/not_implemented |
 | Palette | Real extraction, completed or failed |
-| Region contrast | Real calculation when two regions are set in `PipelineOptions`; otherwise skipped/not_requested. No region-drawing UI yet. |
+| Region contrast | Real calculation, either up front (`PipelineOptions`) or appended later (`AssessmentPipeline.addContrast`); otherwise skipped/not_requested. No region-drawing UI yet. |
 | Disk history persistence | Not implemented |
 
 Only the NoOpAnonymizer route is supported by the current pipeline. Do not pass a real/custom anonymizer and assume its detection is integrated.

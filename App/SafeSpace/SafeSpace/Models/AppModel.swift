@@ -68,6 +68,19 @@ final class AppModel {
         try await store.load(assessmentID: id)
     }
 
+    /// Measures the two regions and appends the result to the assessment (contract §4.8).
+    /// Throws `RegionContrastError.regionTooSmall` without persisting anything if either
+    /// region has too few eligible pixels.
+    func addContrast(assessmentID: AssessmentSummary.ID, regionA: NormalizedRect, regionB: NormalizedRect) async throws -> AssessmentRecord {
+        let stored = try await store.load(assessmentID: assessmentID)
+        guard let image = stored.image, let mask = stored.mask else {
+            throw SafeSpaceError.validation(["The saved photo isn't available, so areas can't be compared."])
+        }
+        let updated = try AssessmentPipeline.addContrast(to: stored.record, image: image, mask: mask, region1: regionA, region2: regionB)
+        try await store.update(updated)
+        return updated
+    }
+
     /// Runs the pipeline on the photo and saves the result. The original bytes are not stored.
     func analyzeAndSave(to roomID: Room.ID, photo: ImportedPhoto) async throws -> AssessmentSummary.ID {
         guard room(id: roomID) != nil else { throw SafeSpaceError.storage(.notFound) }

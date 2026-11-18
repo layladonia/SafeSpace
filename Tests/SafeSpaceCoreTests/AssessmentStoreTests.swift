@@ -177,7 +177,8 @@ final class AssessmentStoreTests: XCTestCase {
         let output = try await analyze(roomID: room.id)
         var record = output.record
         record.steps.anonymization = .init(status: .failed, reason: .anonymizationFailed, durationMs: 0,
-            method: .init(name: "test", version: 1, params: .object([:])), result: nil)
+            method: .init(name: VisionAnonymizer.methodName, version: VisionAnonymizer.methodVersion,
+                          params: try ContractJSON.encoding(AnonymizationParams.v1)), result: nil)
         let failed = PipelineOutput(record: record, storedImage: nil, mask: output.mask, labelMap: output.labelMap,
                                     totalDurationMs: 0)
         let saved = try await store.save(failed)

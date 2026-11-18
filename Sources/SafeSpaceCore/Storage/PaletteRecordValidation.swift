@@ -45,14 +45,9 @@ public enum AssessmentValidator {
         case .failed:
             require([ReasonCode.anonymizationFailed, .detectionUnavailable].contains(r.steps.anonymization.reason ?? .notRequested), "Invalid privacy failure")
             require(!r.image.stored, "Failed anonymization cannot retain a photo")
+            validateAnonymizationMethod(r, require)
         case .completed:
-            if let method = r.steps.anonymization.method {
-                require(!method.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "Missing privacy method name")
-                require(method.version > 0, "Invalid privacy method version")
-                if method.name == "vision_faces_people" {
-                    require(method.version == 1, "Unsupported Vision anonymization version")
-                }
-            }
+            validateAnonymizationMethod(r, require)
             if let result = r.steps.anonymization.result {
                 require(result.maskedShare.isFinite && (0...1).contains(result.maskedShare), "Invalid masked share")
                 require((result.maskedShare > 0) == !result.regions.isEmpty, "Mask share disagrees with regions")
@@ -77,18 +72,6 @@ public enum AssessmentValidator {
                 }
                 if result.mayBeIncomplete || result.regions.isEmpty {
                     require(r.findings.contains { $0.templateId == "limitation.anonymization_incomplete" }, "Missing detection limitation")
-                }
-            }
-            if let method = r.steps.anonymization.method, method.name == "vision_faces_people" {
-                do {
-                    let decoded = try method.params.decoded(as: AnonymizationParams.self)
-                    require(decoded.isValid, "Invalid Vision anonymization parameters")
-                    if !decoded.detectPeople {
-                        require(r.steps.anonymization.result?.mayBeIncomplete == true,
-                                "Face-only detection must report incomplete")
-                    }
-                } catch {
-                    require(false, "Unreadable Vision anonymization parameters: \(error)")
                 }
             }
         }
@@ -150,6 +133,32 @@ public enum AssessmentValidator {
             for pointer in f.sources { require(resolves(pointer, in: object), "Unresolved finding source: \(pointer)") }
         }
         if !errors.isEmpty { throw SafeSpaceError.validation(errors) }
+    }
+    /// Anonymization method (contract §4.6), for completed and failed steps. Only methods this
+    /// build knows are accepted, like palette and quality: an unknown name (e.g. `not_implemented`
+    /// marked completed, or a method from a newer build) would otherwise reopen as masked without
+    /// any of its rules checked. Versions 1...current are accepted so older records still reopen.
+    /// A failed step's params must decode but may be out of range: out-of-range params are one
+    /// way the step fails (see AssessmentPipeline).
+    private static func validateAnonymizationMethod(_ r: AssessmentRecord, _ require: (Bool, String) -> Void) {
+        let step = r.steps.anonymization
+        guard let method = step.method else { return }  // a missing method is reported by the step rules
+        guard method.name == VisionAnonymizer.methodName,
+              (1...VisionAnonymizer.methodVersion).contains(method.version) else {
+            require(false, "Unknown anonymization method or version")
+            return
+        }
+        do {
+            let params = try method.params.decoded(as: AnonymizationParams.self)
+            if step.status == .completed {
+                require(params.isValid, "Invalid Vision anonymization parameters")
+                if !params.detectPeople {
+                    require(step.result?.mayBeIncomplete == true, "Face-only detection must report incomplete")
+                }
+            }
+        } catch {
+            require(false, "Unreadable Vision anonymization parameters: \(error)")
+        }
     }
     /// Quality step (Task 19, contract §3.3 and §4.5). A completed step must carry a decodable
     /// result whose warnings are exactly what its own metrics and recorded params imply. That
@@ -276,8 +285,8 @@ enum EarlyBuildWireCheck {
                 _ = try object(result["metrics"], "mean_luminance clipped_dark_share clipped_bright_share blur_laplacian_variance original_long_side_px")
             }
             if key == "anonymization" {
-                if let method = step["method"] as? [String: Any], step["status"] as? String == "completed",
-                   method["name"] as? String == "vision_faces_people" {
+                if let method = step["method"] as? [String: Any],
+                   method["name"] as? String == VisionAnonymizer.methodName {
                     _ = try object(method["params"], "detect_faces detect_people box_padding blur_radius_px")
                 }
                 if let result = step["result"] as? [String: Any] {

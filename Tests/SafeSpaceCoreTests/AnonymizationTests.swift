@@ -37,11 +37,48 @@ final class AnonymizationTests: XCTestCase {
         let method = try XCTUnwrap(output.record.steps.anonymization.method)
         XCTAssertEqual(try method.params.decoded(as: AnonymizationParams.self), params)
     }
-    func testOtherRectangleMethodRoundTrips() async throws {
-        let output = try await run(FixtureAnonymizer(regions: [region()], methodName: "fixture_rectangles"))
-        XCTAssertEqual(output.record.steps.anonymization.status, .completed)
-        XCTAssertEqual(output.record.steps.anonymization.method?.name, "fixture_rectangles")
-        XCTAssertEqual(try AssessmentJSON.decode(AssessmentJSON.encode(output.record)), output.record)
+    func testUnknownAnonymizationMethodIsRejected() async {
+        // Only methods this build knows are accepted (contract §4.6), like palette and quality.
+        do {
+            _ = try await run(FixtureAnonymizer(regions: [region()], methodName: "fixture_rectangles"))
+            XCTFail("Unknown anonymization method accepted")
+        } catch { XCTAssertTrue(error is SafeSpaceError, "\(error)") }
+    }
+    private func validationErrors(_ record: AssessmentRecord) -> [String] {
+        do { try AssessmentValidator.validate(record); return [] }
+        catch SafeSpaceError.validation(let messages) { return messages }
+        catch { return ["\(error)"] }
+    }
+    func testCompletedStepRelabelledWithOtherMethodIsRejected() async throws {
+        var record = try await run(FixtureAnonymizer(regions: [])).record
+        XCTAssertEqual(validationErrors(record), [])
+        for name in ["not_implemented", "foo"] {
+            record.steps.anonymization.method?.name = name
+            XCTAssertTrue(validationErrors(record).contains("Unknown anonymization method or version"), name)
+        }
+    }
+    func testAnonymizationVersionRange() async throws {
+        var record = try await run(FixtureAnonymizer(regions: [region()])).record
+        for version in [0, VisionAnonymizer.methodVersion + 1] {
+            record.steps.anonymization.method?.version = version
+            XCTAssertTrue(validationErrors(record).contains("Unknown anonymization method or version"), "v\(version)")
+        }
+    }
+    func testFailedStepMethodIsChecked() async throws {
+        let base = try await run(FixtureAnonymizer(regions: [], failure: .detectionFailed)).record
+        XCTAssertEqual(validationErrors(base), [])
+        var renamed = base; renamed.steps.anonymization.method?.name = "foo"
+        XCTAssertTrue(validationErrors(renamed).contains("Unknown anonymization method or version"))
+        var unreadable = base; unreadable.steps.anonymization.method?.params = .object([:])
+        XCTAssertTrue(validationErrors(unreadable).contains { $0.hasPrefix("Unreadable Vision anonymization parameters") })
+    }
+    func testOutOfRangeParamsStillRecordFailedStep() async throws {
+        // Encodable but invalid params take the failed path (palette runs unmasked, no photo kept).
+        var params = AnonymizationParams.v1; params.blurRadiusPx = 0
+        let output = try await run(VisionAnonymizer(params: params))
+        XCTAssertEqual(output.record.steps.anonymization.status, .failed)
+        XCTAssertEqual(output.record.steps.anonymization.reason, .anonymizationFailed)
+        XCTAssertNil(output.storedImage)
     }
     func testDetectionFailedIsNotUnavailable() async throws {
         let output = try await run(FixtureAnonymizer(regions: [], failure: .detectionFailed))
@@ -296,7 +333,7 @@ private struct FixtureAnonymizer: Anonymizer {
     var invalidOutput = false
     var returnOriginal = false
     var params: AnonymizationParams = .v1
-    var methodName: String = "vision_faces_people"
+    var methodName: String = VisionAnonymizer.methodName
     var methodVersion: Int { 1 }
     func encodedParameters() throws -> ContractJSON {
         try ContractJSON.encoding(params)

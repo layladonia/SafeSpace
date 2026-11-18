@@ -25,8 +25,11 @@ public enum AnonymizationError: Error, Sendable {
 /// not certification that all people have been removed. No files or source bytes retained.
 public struct VisionAnonymizer: Anonymizer {
     public let params: AnonymizationParams
-    public var methodName: String { "vision_faces_people" }
-    public var methodVersion: Int { 1 }
+    /// The only anonymization method AssessmentValidator accepts (contract §4.6). A new method
+    /// or version must be added there explicitly, the same way palette and quality methods are.
+    public static let methodName = "vision_faces_people", methodVersion = 1
+    public var methodName: String { Self.methodName }
+    public var methodVersion: Int { Self.methodVersion }
     public init(params: AnonymizationParams = .v1) { self.params = params }
     public func encodedParameters() throws -> ContractJSON {
         try ContractJSON.encoding(params)

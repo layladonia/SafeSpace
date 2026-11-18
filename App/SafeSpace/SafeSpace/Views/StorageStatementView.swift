@@ -32,12 +32,12 @@ struct StorageStatementView: View {
         NavigationStack {
             List {
                 Section("Where it's saved") {
-                    Text("Everything is saved only on this iPhone. Nothing is uploaded, and it isn't included in iCloud or device backups.")
+                    Text("Everything is saved only on this iPhone. Nothing is uploaded, and it isn't included in iCloud or device backups. The only copy that leaves the app is one you export yourself.")
                     Text("Analysis runs on this iPhone.")
                 }
                 Section("What's saved") {
                     Label("Room names you add", systemImage: "house")
-                    Label("For each assessment: a smaller copy of the analyzed photo (when one is kept), the color results and the text on the result screen", systemImage: "square.stack")
+                    Label("For each assessment: a smaller copy of the analyzed photo (when one is kept), the color results, any two-area comparisons you make, and the text on the result screen", systemImage: "square.stack")
                 }
                 Section("What isn't saved") {
                     Text("Your original photo is not saved by this app. A photo chosen from your library stays in Photos, unchanged. A photo taken with the camera here is not added to Photos.")
@@ -46,6 +46,7 @@ struct StorageStatementView: View {
                     Text(StorageStatement.deleteAssessment)
                     Text(StorageStatement.deleteRoom)
                     Text("Deleting the app removes everything it saved.")
+                    Text("If you use Export JSON, the exported file is a separate copy. Deleting in this app doesn't remove it.")
                 }
             }
             .navigationTitle("What's saved")

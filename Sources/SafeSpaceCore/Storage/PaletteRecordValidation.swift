@@ -1,7 +1,6 @@
 import Foundation
 
-// Validates palette, quality, and rectangle-based anonymization records.
-// Completed contrast results are not supported in this build.
+// Validates palette, quality, rectangle-based anonymization, and contrast records.
 public enum AssessmentValidator {
     public static func validate(_ r: AssessmentRecord) throws {
         var errors: [String] = []
@@ -36,8 +35,7 @@ public enum AssessmentValidator {
         }
         envelope(r.steps.palette, "palette"); envelope(r.steps.quality, "quality")
         envelope(r.steps.anonymization, "anonymization"); envelope(r.steps.contrast, "contrast")
-        
-        require(r.steps.contrast.status == .skipped, "This build cannot validate completed contrast results")
+
         validateQuality(r, require)
         switch r.steps.anonymization.status {
         case .skipped:
@@ -75,7 +73,17 @@ public enum AssessmentValidator {
                 }
             }
         }
-        require([ReasonCode.notRequested, .imageUnavailable, .notImplemented, .dependencyFailed].contains(r.steps.contrast.reason ?? .disabledByUser), "Invalid contrast skip reason")
+        // Contrast envelope reasons. The skip list stays wide (including image_unavailable) so
+        // records saved before region contrast existed still reopen.
+        switch r.steps.contrast.status {
+        case .skipped:
+            require([ReasonCode.notRequested, .imageUnavailable, .notImplemented, .dependencyFailed]
+                .contains(r.steps.contrast.reason ?? .disabledByUser), "Invalid contrast skip reason")
+        case .failed:
+            require(r.steps.contrast.reason == .contrastCalculationFailed, "Invalid contrast failure reason")
+        case .completed:
+            break
+        }
         require(["heic", "jpeg", "png", "other"].contains(r.image.original.format), "Invalid original format")
         require(["srgb", "display_p3", "adobe_rgb", "untagged", "other"].contains(r.image.original.colorSpace), "Invalid original color space")
         require((1...8).contains(r.image.original.exifOrientation), "Invalid EXIF orientation")
@@ -83,7 +91,6 @@ public enum AssessmentValidator {
         require(r.image.workingCopy.orientationApplied && r.image.workingCopy.resizeMethod == "area_average_gamma_encoded"
                 && r.image.workingCopy.gamutMapping == "clip", "Invalid working-copy provenance")
         if !r.image.stored {
-            require(r.steps.contrast.reason == .imageUnavailable, "Unstored image requires contrast image_unavailable")
             require(r.steps.palette.result?.labelMapFile == nil, "Unstored image must have null label_map_file")
         }
         let allowedPaletteFailures: [ReasonCode] = [.noEligiblePixels, .paletteExtractionFailed]
@@ -115,6 +122,22 @@ public enum AssessmentValidator {
                 require((0...1).contains(c.oklch.l) && c.oklch.c >= 0, "Invalid OKLCh")
                 require((c.oklch.h == nil) == (c.oklch.c < 0.002), "Invalid achromatic hue")
                 if let hue = c.oklch.h { require(hue.isFinite && (0..<360).contains(hue), "Invalid hue") }
+            }
+        }
+        if let contrast = r.steps.contrast.result {
+            require(r.steps.contrast.method?.name == RegionContrast.methodName, "Unknown contrast method")
+            require(r.steps.contrast.method?.version == RegionContrast.methodVersion, "Unsupported contrast method version")
+            require(contrast.colorSpace == "cielab", "Invalid contrast color space")
+            require(contrast.formula == "ciede2000", "Invalid contrast formula")
+            require(!contrast.measurements.isEmpty, "Completed contrast has no measurements")
+            require(Set(contrast.measurements.map(\.measurementId)).count == contrast.measurements.count,
+                    "Duplicate contrast measurement IDs")
+            for measurement in contrast.measurements {
+                require(measurement.deltaE.isFinite && measurement.deltaE >= 0, "Invalid deltaE")
+                for region in [measurement.region1, measurement.region2] {
+                    require(region.pixelCount > 0, "Region has no eligible pixels")
+                    require([region.cielab.l, region.cielab.a, region.cielab.b].allSatisfy { $0.isFinite }, "Nonfinite region color")
+                }
             }
         }
         require(Set(r.findings.map(\.id)).count == r.findings.count, "Duplicate finding IDs")
@@ -268,9 +291,6 @@ enum EarlyBuildWireCheck {
             default:
                 throw SafeSpaceError.validation(["Unknown step status"])
             }
-            if key == "contrast", !(step["result"] is NSNull) {
-                throw SafeSpaceError.validation(["This early-build reader does not support completed \(key) results"])
-            }
             if let method = step["method"] as? [String: Any] {
                 _ = try object(method, "name version params")
                 if key == "palette" {
@@ -309,9 +329,22 @@ enum EarlyBuildWireCheck {
                     _ = try object(c["cielab"], "l a b")
                 }
             }
+            if key == "contrast", let result = step["result"] as? [String: Any] {
+                _ = try object(result, "color_space formula measurements")
+                guard let measurements = result["measurements"] as? [Any] else {
+                    throw SafeSpaceError.validation(["measurements must be an array"])
+                }
+                for measurement in measurements {
+                    let m = try object(measurement, "measurement_id created_at label region1 region2 delta_e")
+                    for regionKey in ["region1", "region2"] {
+                        let region = try object(m[regionKey], "rect pixel_count cielab")
+                        _ = try object(region["rect"], "x y width height")
+                        _ = try object(region["cielab"], "l a b")
+                    }
+                }
+            }
         }
         guard let findings = r["findings"] as? [Any] else { throw SafeSpaceError.validation(["findings must be an array"]) }
         for finding in findings { _ = try object(finding, "id kind template_id template_version text sources") }
     }
 }
-

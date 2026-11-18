@@ -8,7 +8,6 @@ enum Route: Hashable {
     case room(Room.ID)
     case newAssessment(roomID: Room.ID)
     case assessment(roomID: Room.ID, assessmentID: AssessmentSummary.ID)
-    case regionCompare(roomID: Room.ID, assessmentID: AssessmentSummary.ID)
 }
 
 @MainActor

@@ -33,8 +33,6 @@ struct RootView: View {
                         NewAssessmentView(roomID: roomID)
                     case .assessment(let roomID, let assessmentID):
                         AssessmentResultView(roomID: roomID, assessmentID: assessmentID)
-                    case .regionCompare(let roomID, let assessmentID):
-                        RegionCompareView(roomID: roomID, assessmentID: assessmentID)
                     }
                 }
         }

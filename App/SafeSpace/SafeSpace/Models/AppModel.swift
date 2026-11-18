@@ -71,13 +71,12 @@ final class AppModel {
     /// Measures the two regions and appends the result to the assessment (contract §4.8).
     /// Throws `RegionContrastError.regionTooSmall` without persisting anything if either
     /// region has too few eligible pixels.
-    func addContrastMeasurement(
-        to record: AssessmentRecord, image: SRGBImage, mask: EligibilityMask,
-        region1: NormalizedRect, region2: NormalizedRect
-    ) async throws -> AssessmentRecord {
-        let updated = try AssessmentPipeline.addContrast(
-            to: record, image: image, mask: mask, region1: region1, region2: region2
-        )
+    func addContrast(assessmentID: AssessmentSummary.ID, regionA: NormalizedRect, regionB: NormalizedRect) async throws -> AssessmentRecord {
+        let stored = try await store.load(assessmentID: assessmentID)
+        guard let image = stored.image, let mask = stored.mask else {
+            throw SafeSpaceError.validation(["The saved photo isn't available, so areas can't be compared."])
+        }
+        let updated = try AssessmentPipeline.addContrast(to: stored.record, image: image, mask: mask, region1: regionA, region2: regionB)
         try await store.update(updated)
         return updated
     }

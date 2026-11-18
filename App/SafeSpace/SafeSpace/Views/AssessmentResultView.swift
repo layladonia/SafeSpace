@@ -11,6 +11,7 @@ struct AssessmentResultView: View {
     @State private var exportDocument: AssessmentJSONDocument?
     @State private var isExporting = false
     @State private var errorMessage: String?
+    @State private var isSelectingRegions = false
 
     var body: some View {
         Group {
@@ -27,6 +28,31 @@ struct AssessmentResultView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Text(photoSummary(assessment.record.image)).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Section("Color difference") {
+                        if assessment.image != nil {
+                            Button {
+                                isSelectingRegions = true
+                            } label: {
+                                Label("Compare two areas", systemImage: "viewfinder")
+                            }
+                            Text("Draw two boxes on the photo to compare their average colors.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if let result = assessment.record.steps.contrast.result {
+                                ForEach(result.measurements.reversed()) { measurement in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("ΔE00 \(measurement.deltaE.formatted(.number.precision(.fractionLength(1))))")
+                                            .font(.headline)
+                                        Text("Color difference (CIEDE2000, CIELAB) in this photo")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    .accessibilityElement(children: .combine)
+                                }
+                            }
+                        } else {
+                            Text("The saved photo isn't available, so areas can't be compared.")
+                                .foregroundStyle(.secondary)
                         }
                     }
                     if assessment.record.steps.anonymization.status == .failed {
@@ -141,6 +167,16 @@ struct AssessmentResultView: View {
         .task(id: assessmentID) {
             do { assessment = try await model.loadAssessment(id: assessmentID) }
             catch { loadError = error.localizedDescription }
+        }
+        .sheet(isPresented: $isSelectingRegions, onDismiss: {
+            Task {
+                do { assessment = try await model.loadAssessment(id: assessmentID) }
+                catch { loadError = error.localizedDescription }
+            }
+        }) {
+            NavigationStack {
+                RegionSelectionView(assessmentID: assessmentID)
+            }
         }
         .fileExporter(isPresented: $isExporting, document: exportDocument,
                       contentType: .json, defaultFilename: "assessment") { result in

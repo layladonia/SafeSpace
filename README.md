@@ -14,7 +14,7 @@ SafeSpace is an iPhone app. Users photograph or upload room photos and get a cle
 - **Privacy / anonymization:** detects visible faces and people on the phone and blurs them in an anonymized analysis copy. It reports when detection may be incomplete.
 - **Image-quality checks:** warns about low brightness, overexposure, blur, or very low resolution. It warns and continues instead of blocking.
 - **Color palette extraction:** finds dominant colors and the share of the image each covers.
-- **Region contrast comparison:** pick two regions (e.g. wall vs. floor) and measure hue, saturation, lightness, and color difference (CIEDE2000).
+- **Region contrast comparison:** draw two boxes on a saved photo to compare mean CIELAB colors with CIEDE2000.
 - **Low-stimulation profile:** a configurable profile based on public design criteria. It keeps measurements, profile rules, and user-facing wording separate.
 - **Visual results:** palette swatches with proportions, region overlays, toggleable layers, and plain-language findings with visible limitations.
 - **Assessment history:** structured results are saved so assessments can be reopened or deleted.

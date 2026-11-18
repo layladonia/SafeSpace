@@ -8,7 +8,7 @@ It replaces the placeholder palette row and abandoned demo/import workflow. The 
 
 Reference: Safe Space API and Data Contract v1 (proposed), particularly sections 2–5, 9, and 11. This is the Week-2 palette implementation, not a complete implementation of every module in the contract. Record team approval of the proposed contract and its open decisions separately.
 
-The palette summarizes colors. It is not the planned two-region contrast measurement and is not a room-safety assessment.
+The palette summarizes colors separately from the two-region contrast measurement. Neither is a room-safety assessment.
 
 ## Current app configuration
 
@@ -75,8 +75,9 @@ Filtering happens after clustering/merging. Lowering minShare alone retains addi
 3. Select one library photo or capture one photo.
 4. Tap Analyze & Save.
 5. Review the palette, percentages, and limitations.
-6. Optionally export the generated assessment JSON.
-7. Return to the room's current-session history.
+6. Optionally draw two boxes on the saved photo to compare their mean CIELAB colors with CIEDE2000. Each successful comparison is appended to the assessment.
+7. Optionally export the generated assessment JSON.
+8. Return to the room's current-session history.
 
 One assessment contains one photo, following the proposed contract's recommended D1 option. Photos are not combined into an aggregate palette. Newly selected options affect new analyses only; old assessments are not automatically recomputed.
 
@@ -178,7 +179,7 @@ The palette is an overview, not an exhaustive list of image colors. More swatche
 
 The contract specifies direct region comparison from eligible working-copy pixels: mean CIELAB values for two user-selected regions followed by CIEDE2000. It must not depend on whether those regions' colors appear in the palette.
 
-Keeping a small red group does not reduce the accuracy of that separate calculation. Missing a palette swatch must not make the object's region unavailable for measurement. The region-contrast feature is not implemented in this patch. CIEDE2000 photographic color difference must not be presented as a validated room-safety or accessibility judgment.
+Keeping a small red group does not reduce the accuracy of that separate calculation. Missing a palette swatch must not make the object's region unavailable for measurement. Region comparison averages eligible pixel values in CIELAB D65 and applies CIEDE2000. This photo-based color difference is not a validated room-safety or accessibility judgment.
 
 ## Scope, storage, and privacy
 
@@ -188,7 +189,7 @@ Keeping a small red group does not reduce the accuracy of that separate calculat
 | Quality metrics | Skipped/not_implemented, or disabled_by_user |
 | Anonymization | NoOpAnonymizer; skipped/not_implemented |
 | Palette | Real extraction, completed or failed |
-| Region contrast | Not implemented; skipped/image_unavailable |
+| Region contrast | User-drawn regions; mean CIELAB D65 and CIEDE2000, appended to the saved assessment |
 | Disk history persistence | Not implemented |
 
 Only the NoOpAnonymizer route is supported by the current pipeline. Do not pass a real/custom anonymizer and assume its detection is integrated.

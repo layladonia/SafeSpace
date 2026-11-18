@@ -139,6 +139,38 @@ public enum AssessmentPipeline {
         return PipelineOutput(record: record, storedImage: privacy.status == .failed ? nil : copy.image,
                               mask: mask, labelMap: map, totalDurationMs: elapsed(start))
     }
+
+    /// Appends a user-selected region comparison to an existing assessment.
+    public static func addContrast(to record: AssessmentRecord, image: SRGBImage, mask: EligibilityMask,
+                                   a: NormalizedRect, b: NormalizedRect) throws -> AssessmentRecord {
+        let start = Date()
+        let measurement = try RegionContrast.measure(image: image, mask: mask, a: a, b: b)
+        var updated = record
+        let existing: [ContrastMeasurement]
+        if record.steps.contrast.status == .completed, let raw = record.steps.contrast.result {
+            existing = try raw.decoded(as: ContrastResult.self).measurements
+        } else if record.steps.contrast.status == .skipped, record.steps.contrast.reason == .notRequested {
+            existing = []
+        } else {
+            throw SafeSpaceError.validation(["Contrast cannot run when the saved photo is unavailable"])
+        }
+        let result = ContrastResult(measurements: existing + [measurement])
+        let params = ContractJSON.object([
+            "averaging_space": .string("cielab_d65"),
+            "kl": .number(1), "kc": .number(1), "kh": .number(1),
+            "min_eligible_pixels": .number(100)
+        ])
+        updated.steps.contrast = StepRecord(
+            status: .completed, reason: nil, durationMs: elapsed(start),
+            method: MethodRecord(name: RegionContrast.methodName, version: RegionContrast.methodVersion, params: params),
+            result: try ContractJSON.encoding(result)
+        )
+        updated.updatedAt = max(record.updatedAt, Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970)))
+        updated.findings = Findings.generate(for: updated)
+        try AssessmentValidator.validate(updated)
+        return updated
+    }
+
     /// Quality step (Task 19). It runs on the unmasked working copy and only ever warns: a
     /// completed step with warnings still lets the palette run (decision log Oct 11). Any error
     /// while measuring or encoding the result becomes `failed / quality_check_failed`, with method

@@ -1,7 +1,6 @@
 import Foundation
 
-// Validator for the palette and quality paths (quality since Task 19) and skipped later steps.
-// It is not yet the complete validator for completed privacy/contrast modules.
+// Validator for the palette, quality and region contrast paths, plus skipped privacy.
 public enum AssessmentValidator {
     public static func validate(_ r: AssessmentRecord) throws {
         var errors: [String] = []
@@ -36,16 +35,19 @@ public enum AssessmentValidator {
         }
         envelope(r.steps.palette, "palette"); envelope(r.steps.quality, "quality")
         envelope(r.steps.anonymization, "anonymization"); envelope(r.steps.contrast, "contrast")
-        // Later complete result models are intentionally not implemented by this patch.
+        // Privacy still has no completed result model in this build.
         require(r.steps.anonymization.status != .completed, "This build cannot validate completed anonymization results")
-        require(r.steps.contrast.status == .skipped, "This build cannot validate completed contrast results")
         validateQuality(r, require)
+        validateContrast(r, require)
         if r.steps.anonymization.status == .skipped {
             require([ReasonCode.notImplemented, .disabledByUser].contains(r.steps.anonymization.reason ?? .notRequested), "Invalid privacy reason")
         } else {
             require([ReasonCode.anonymizationFailed, .detectionUnavailable].contains(r.steps.anonymization.reason ?? .notRequested), "Invalid privacy failure")
         }
-        require([ReasonCode.notRequested, .imageUnavailable, .notImplemented, .dependencyFailed].contains(r.steps.contrast.reason ?? .disabledByUser), "Invalid contrast skip reason")
+        if r.steps.contrast.status == .skipped {
+            require([ReasonCode.notRequested, .imageUnavailable, .notImplemented, .dependencyFailed]
+                    .contains(r.steps.contrast.reason ?? .disabledByUser), "Invalid contrast skip reason")
+        }
         require(["heic", "jpeg", "png", "other"].contains(r.image.original.format), "Invalid original format")
         require(["srgb", "display_p3", "adobe_rgb", "untagged", "other"].contains(r.image.original.colorSpace), "Invalid original color space")
         require((1...8).contains(r.image.original.exifOrientation), "Invalid EXIF orientation")
@@ -56,6 +58,7 @@ public enum AssessmentValidator {
             require(r.steps.contrast.reason == .imageUnavailable, "Unstored image requires contrast image_unavailable")
             require(r.steps.palette.result?.labelMapFile == nil, "Unstored image must have null label_map_file")
         }
+
         let allowedPaletteFailures: [ReasonCode] = [.noEligiblePixels, .paletteExtractionFailed]
         if r.steps.palette.status == .failed {
             require(allowedPaletteFailures.contains(r.steps.palette.reason ?? .notRequested), "Invalid palette failure reason")
@@ -104,6 +107,47 @@ public enum AssessmentValidator {
         }
         if !errors.isEmpty { throw SafeSpaceError.validation(errors) }
     }
+
+    private static func validateContrast(_ r: AssessmentRecord, _ require: (Bool, String) -> Void) {
+        let step = r.steps.contrast
+        guard step.status == .completed else { return }
+        require(r.image.stored, "Completed contrast requires a stored image")
+        require(step.method?.name == RegionContrast.methodName && step.method?.version == RegionContrast.methodVersion,
+                "Unknown contrast method or version")
+        guard let method = step.method, let rawResult = step.result else { return }
+        let result: ContrastResult
+        do {
+            let params = try method.params.decoded(as: [String: ContractJSON].self)
+            require(params["averaging_space"] == .string("cielab_d65")
+                    && params["kl"] == .number(1) && params["kc"] == .number(1)
+                    && params["kh"] == .number(1) && params["min_eligible_pixels"] == .number(100),
+                    "Invalid contrast params")
+            result = try rawResult.decoded(as: ContrastResult.self)
+        } catch {
+            require(false, "Unreadable contrast params or result: \(error)")
+            return
+        }
+        require(!result.measurements.isEmpty, "Contrast result must contain a measurement")
+        require(Set(result.measurements.map(\.measurementId)).count == result.measurements.count,
+                "Duplicate contrast measurement IDs")
+        for measurement in result.measurements {
+            require(!measurement.measurementId.isEmpty, "Missing contrast measurement ID")
+            require(measurement.deltaE2000.isFinite && measurement.deltaE2000 >= 0, "Invalid color difference")
+            for region in [measurement.regionA, measurement.regionB] {
+                let rect = region.rect
+                require(rect.x.isFinite && rect.y.isFinite && rect.width.isFinite && rect.height.isFinite
+                        && rect.x >= 0 && rect.y >= 0 && rect.width > 0 && rect.height > 0
+                        && rect.x + rect.width <= 1 && rect.y + rect.height <= 1, "Invalid contrast region bounds")
+                require(region.pixelCount > 0 && region.eligiblePixelCount >= 100
+                        && region.eligiblePixelCount <= region.pixelCount, "Invalid contrast pixel counts")
+                require([region.meanCielab.l, region.meanCielab.a, region.meanCielab.b].allSatisfy(\.isFinite),
+                        "Nonfinite mean CIELAB")
+                require(region.meanHex.range(of: "^#[0-9A-F]{6}$", options: .regularExpression) != nil,
+                        "Invalid mean hex")
+            }
+        }
+    }
+
     /// Quality step (Task 19, contract §3.3 and §4.5). A completed step must carry a decodable
     /// result whose warnings are exactly what its own metrics and recorded params imply. That
     /// catches hand-edited files and a result saved with one threshold set and labelled with another.
@@ -190,9 +234,8 @@ enum EarlyBuildWireCheck {
         let steps = try object(r["steps"], "quality anonymization palette contrast")
         for key in ["quality", "anonymization", "palette", "contrast"] {
             let step = try object(steps[key], "status reason duration_ms method result")
-            // Palette and (since Task 19) quality have full result shapes. The other steps are
-            // still only allowed to be null until their tasks land.
-            if key != "palette", key != "quality", !(step["result"] is NSNull) {
+            // Palette, quality and contrast have typed result shapes; privacy remains unimplemented.
+            if key != "palette", key != "quality", key != "contrast", !(step["result"] is NSNull) {
                 throw SafeSpaceError.validation(["This early-build reader does not support completed \(key) results"])
             }
             if let method = step["method"] as? [String: Any] {
@@ -202,6 +245,9 @@ enum EarlyBuildWireCheck {
                 }
                 if key == "quality" {
                     _ = try object(method["params"], "dark_mean_luminance_max bright_mean_luminance_min clipped_share_max blur_variance_min min_long_side_px")
+                }
+                if key == "contrast" {
+                    _ = try object(method["params"], "averaging_space kl kc kh min_eligible_pixels")
                 }
             }
             if key == "quality", let result = step["result"] as? [String: Any] {
@@ -215,6 +261,20 @@ enum EarlyBuildWireCheck {
                     let c = try object(color, "id rank share pixel_count hex srgb8 oklab oklch cielab")
                     _ = try object(c["oklab"], "l a b"); _ = try object(c["oklch"], "l c h")
                     _ = try object(c["cielab"], "l a b")
+                }
+            }
+            if key == "contrast", let result = step["result"] as? [String: Any] {
+                _ = try object(result, "measurements")
+                guard let measurements = result["measurements"] as? [Any] else {
+                    throw SafeSpaceError.validation(["contrast measurements must be an array"])
+                }
+                for value in measurements {
+                    let measurement = try object(value, "measurement_id created_at label region_a region_b delta_e_2000")
+                    for key in ["region_a", "region_b"] {
+                        let region = try object(measurement[key], "rect pixel_count eligible_pixel_count mean_cielab mean_hex")
+                        _ = try object(region["rect"], "x y width height")
+                        _ = try object(region["mean_cielab"], "l a b")
+                    }
                 }
             }
         }

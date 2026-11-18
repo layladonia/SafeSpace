@@ -23,11 +23,17 @@ public enum StorageFailure: Equatable, Sendable {
 }
 public enum SafeSpaceError: Error, Equatable, Sendable, LocalizedError {
     case load(LoadFailure)
+    case regionTooSmall(region: RegionSide, eligiblePixels: Int)
+    case regionOutOfBounds(region: RegionSide)
     case validation([String])
     case storage(StorageFailure)
     public var errorDescription: String? {
         switch self {
         case .load(let failure): return "The photo could not be loaded (\(failure.rawValue))."
+        case .regionTooSmall(let region, let count):
+            return "Region \(region.rawValue.uppercased()) has only \(count) eligible pixels. Draw a larger box."
+        case .regionOutOfBounds(let region):
+            return "Region \(region.rawValue.uppercased()) must be drawn inside the photo."
         case .validation(let messages): return messages.joined(separator: "\n")
         case .storage(.notFound): return "This room or assessment no longer exists."
         case .storage(.corrupt): return "This saved assessment can't be opened."

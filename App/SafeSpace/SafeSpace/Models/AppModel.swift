@@ -68,6 +68,21 @@ final class AppModel {
         try await store.load(assessmentID: id)
     }
 
+    func addContrast(assessmentID: AssessmentSummary.ID, regionA: NormalizedRect,
+                     regionB: NormalizedRect) async throws -> AssessmentRecord {
+        let stored = try await store.load(assessmentID: assessmentID)
+        guard let image = stored.image, let mask = stored.mask else {
+            throw SafeSpaceError.validation(["The saved photo is unavailable for region comparison"])
+        }
+        let updated = try await Task.detached(priority: .userInitiated) {
+            try AssessmentPipeline.addContrast(to: stored.record, image: image, mask: mask,
+                                               a: regionA, b: regionB)
+        }.value
+        try await store.update(updated)
+        await reload()
+        return updated
+    }
+
     /// Runs the pipeline on the photo and saves the result. The original bytes are not stored.
     func analyzeAndSave(to roomID: Room.ID, photo: ImportedPhoto) async throws -> AssessmentSummary.ID {
         guard room(id: roomID) != nil else { throw SafeSpaceError.storage(.notFound) }

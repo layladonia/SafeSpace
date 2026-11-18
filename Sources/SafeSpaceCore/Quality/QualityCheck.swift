@@ -195,7 +195,7 @@ extension ContractJSON {
     /// Reverse of `encoding`. It goes through the snake_case encoder and decoder, so it works on
     /// a freshly built value (snake_case keys) and on one decoded from disk (keys camelCased by
     /// the record decoder).
-    func decoded<T: Decodable>(as type: T.Type) throws -> T {
+    public func decoded<T: Decodable>(as type: T.Type) throws -> T {
         try AssessmentJSON.decoder().decode(T.self, from: AssessmentJSON.encoder().encode(self))
     }
 }

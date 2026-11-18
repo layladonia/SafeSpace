@@ -64,8 +64,15 @@ public enum Findings {
             append(.limitation, "limitation.people_not_masked",
                    "Faces and people have not been hidden or excluded from these color statistics.")
         }
-        append(.limitation, "limitation.palette_not_contrast",
-               "Pixel shares are not measurements of physical surface area. A palette does not compare the color difference between two selected areas.")
+            let contrastMeasurements = record.contrastResult?.measurements ?? []
+            if contrastMeasurements.isEmpty {
+                append(.limitation, "limitation.palette_not_contrast",
+                       "Pixel shares are not measurements of physical surface area. A palette does not compare the color difference between two selected areas.")
+            } else {
+                for index in contrastMeasurements.indices {
+                    findings.append(makeContrastFinding(record, measurementIndex: index, id: "f\(findings.count + 1)"))
+                }
+            }
         // Contract §4.9 conditional limitation. It says the user may continue, because quality
         // never blocks (decision log Oct 11).
         if let quality, !quality.warnings.isEmpty {
@@ -84,6 +91,21 @@ public enum Findings {
             break
         }
         return findings
+    }
+
+    public static func contrastFindings(for record: AssessmentRecord, measurementIndex: Int) -> [Finding] {
+        guard let measurements = record.contrastResult?.measurements,
+              measurements.indices.contains(measurementIndex) else { return [] }
+        return [makeContrastFinding(record, measurementIndex: measurementIndex, id: "f1")]
+    }
+
+    private static func makeContrastFinding(_ record: AssessmentRecord, measurementIndex: Int, id: String) -> Finding {
+        let measurement = record.contrastResult!.measurements[measurementIndex]
+        let text = "The selected areas have a color difference of ΔE00 \(String(format: "%.1f", measurement.deltaE2000))."
+        precondition(!containsBannedTerm(text))
+        return Finding(id: id, kind: .contrast, templateId: "contrast.region_difference", templateVersion: 1,
+                       text: text,
+                       sources: ["/steps/contrast/result/measurements/\(measurementIndex)/delta_e_2000"])
     }
 
     /// One sentence per quality warning, plus the metric it is sourced from (S4 checks each

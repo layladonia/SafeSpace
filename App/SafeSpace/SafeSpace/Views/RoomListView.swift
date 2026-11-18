@@ -8,24 +8,36 @@ struct RoomListView: View {
     @State private var isNamingRoom = false
     @State private var newRoomName = ""
     @State private var errorMessage: String?
+    @State private var isShowingStorageStatement = false
+    /// Deleting a room removes all of its assessments, so it is confirmed first.
+    @State private var roomPendingDelete: Room?
 
     var body: some View {
         List {
-            ForEach(model.rooms) { room in
-                NavigationLink(value: Route.room(room.id)) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(room.name)
-                            .font(.headline)
-                        Text(assessmentCount(model.assessments(in: room.id).count))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+            Section {
+                ForEach(model.rooms) { room in
+                    NavigationLink(value: Route.room(room.id)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(room.name)
+                                .font(.headline)
+                            Text(assessmentCount(model.assessments(in: room.id).count))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
+                    // Not `.onDelete` or a destructive role: both animate the row away before
+                    // the alert is answered, which made the list jump.
+                    .swipeActions(allowsFullSwipe: false) {
+                        Button("Delete", systemImage: "trash") { roomPendingDelete = room }
+                            .tint(.red)
+                    }
                 }
-            }
-            .onDelete { offsets in
-                let ids = offsets.map { model.rooms[$0].id }
-                Task { await run { try await model.deleteRooms(ids) } }
+            } footer: {
+                // Hidden while the empty-state overlay is shown, so the two don't overlap.
+                if !model.rooms.isEmpty {
+                    Text(StorageStatement.short)
+                }
             }
         }
         .overlay {
@@ -45,6 +57,13 @@ struct RoomListView: View {
         }
         .navigationTitle("Rooms")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    isShowingStorageStatement = true
+                } label: {
+                    Label("What's saved", systemImage: "info.circle")
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     isNamingRoom = true
@@ -63,6 +82,21 @@ struct RoomListView: View {
             Button("Cancel", role: .cancel) { newRoomName = "" }
         } message: {
             Text("Give the room a name you'll recognize later.")
+        }
+        .sheet(isPresented: $isShowingStorageStatement) { StorageStatementView() }
+        // An alert, not a confirmationDialog: newer iOS shows a dialog as a popover with an
+        // arrow pinned to the row; an alert is always centered.
+        .alert(
+            "Delete \u{201C}\(roomPendingDelete?.name ?? "")\u{201D}?",
+            isPresented: Binding(get: { roomPendingDelete != nil }, set: { if !$0 { roomPendingDelete = nil } }),
+            presenting: roomPendingDelete
+        ) { room in
+            Button("Delete room", role: .destructive) {
+                Task { await run { try await model.deleteRooms([room.id]) } }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { room in
+            Text(StorageStatement.deleteRoomMessage(assessmentCount: model.assessments(in: room.id).count))
         }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } })) {

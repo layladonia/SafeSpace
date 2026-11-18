@@ -73,7 +73,7 @@ final class PaletteEngineTests: XCTestCase {
         let output = try await AssessmentPipeline.run(imageData: input, source: .library,
             roomID: UUID().uuidString.lowercased(), producer: producer)
         XCTAssertEqual(output.record.overallState, .complete)
-        XCTAssertEqual(output.record.steps.quality.status, .skipped)
+        XCTAssertEqual(output.record.steps.quality.status, .completed)   // Task 19: quality runs by default
         XCTAssertEqual(output.record.steps.anonymization.status, .skipped)
         let data = try AssessmentJSON.encode(output.record)
         XCTAssertEqual(try AssessmentJSON.decode(data), output.record)

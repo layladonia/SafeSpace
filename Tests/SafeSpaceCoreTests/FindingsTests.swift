@@ -101,7 +101,9 @@ final class FindingsTests: XCTestCase {
         r.steps.palette = .init(status: .failed, reason: .paletteExtractionFailed, durationMs: 0,
                                 method: r.steps.palette.method, result: nil)
         r.findings = Findings.generate(for: r)
-        XCTAssertTrue(r.findings.allSatisfy { $0.kind == .limitation })
+        // Contract §3.4: with a failed palette, findings may describe only quality and limitations.
+        XCTAssertTrue(r.findings.allSatisfy { $0.kind == .limitation || $0.kind == .quality })
+        XCTAssertFalse(r.findings.contains { $0.kind.rawValue.hasPrefix("palette") })
         try AssessmentValidator.validate(r)
     }
 

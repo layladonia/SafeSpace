@@ -122,7 +122,7 @@ public actor FileAssessmentStore: AssessmentStore {
         let temp = folder.appendingPathComponent("assessment.json.tmp")
         try writing {
             try write(data, to: temp)
-            _ = try fm.replaceItemAt(file, withItemAt: temp)
+            try atomicReplace(file, with: temp)
         }
     }
 
@@ -200,6 +200,17 @@ public actor FileAssessmentStore: AssessmentStore {
         try data.write(to: url, options: [.atomic, .completeFileProtection])
         #else
         try data.write(to: url, options: .atomic)
+        #endif
+    }
+    /// `FileManager.replaceItemAt` traps with "not yet implemented" in swift-corelibs-foundation
+    /// on Windows, so that platform falls back to remove-then-move (non-atomic, but this is a
+    /// single-writer local store).
+    private func atomicReplace(_ destination: URL, with temp: URL) throws {
+        #if os(Windows)
+        if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+        try fm.moveItem(at: temp, to: destination)
+        #else
+        _ = try fm.replaceItemAt(destination, withItemAt: temp)
         #endif
     }
     /// Maps file-system errors to the contract's storage failures.

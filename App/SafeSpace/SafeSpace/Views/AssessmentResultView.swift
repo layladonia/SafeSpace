@@ -6,6 +6,7 @@ struct AssessmentResultView: View {
     let roomID: Room.ID
     let assessmentID: AssessmentSummary.ID
     @Environment(AppModel.self) private var model
+    @Environment(Router.self) private var router
     @State private var assessment: StoredAssessment?
     @State private var loadError: String?
     @State private var exportDocument: AssessmentJSONDocument?
@@ -98,6 +99,10 @@ struct AssessmentResultView: View {
                             assessment.record.steps.contrast.status,
                             assessment.record.steps.contrast.reason
                         )
+                        Button("Compare two areas") {
+                            router.push(.regionCompare(roomID: roomID, assessmentID: assessmentID))
+                        }
+                        .disabled(assessment.image == nil || assessment.mask == nil)
                     } header: {
                         Text("Analysis")
                     } footer: {

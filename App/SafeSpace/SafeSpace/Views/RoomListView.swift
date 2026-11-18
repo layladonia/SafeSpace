@@ -26,9 +26,12 @@ struct RoomListView: View {
                         }
                         .padding(.vertical, 4)
                     }
-                }
-                .onDelete { offsets in
-                    roomPendingDelete = offsets.first.map { model.rooms[$0] }
+                    // Not `.onDelete` or a destructive role: both animate the row away before
+                    // the alert is answered, which made the list jump.
+                    .swipeActions(allowsFullSwipe: false) {
+                        Button("Delete", systemImage: "trash") { roomPendingDelete = room }
+                            .tint(.red)
+                    }
                 }
             } footer: {
                 // Hidden while the empty-state overlay is shown, so the two don't overlap.
@@ -81,10 +84,11 @@ struct RoomListView: View {
             Text("Give the room a name you'll recognize later.")
         }
         .sheet(isPresented: $isShowingStorageStatement) { StorageStatementView() }
-        .confirmationDialog(
+        // An alert, not a confirmationDialog: newer iOS shows a dialog as a popover with an
+        // arrow pinned to the row; an alert is always centered.
+        .alert(
             "Delete \u{201C}\(roomPendingDelete?.name ?? "")\u{201D}?",
             isPresented: Binding(get: { roomPendingDelete != nil }, set: { if !$0 { roomPendingDelete = nil } }),
-            titleVisibility: .visible,
             presenting: roomPendingDelete
         ) { room in
             Button("Delete room", role: .destructive) {

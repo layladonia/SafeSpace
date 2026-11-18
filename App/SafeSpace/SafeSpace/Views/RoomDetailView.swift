@@ -7,7 +7,7 @@ struct RoomDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(Router.self) private var router
     @State private var errorMessage: String?
-    @State private var assessmentsPendingDelete: Set<AssessmentSummary.ID> = []
+    @State private var assessmentPendingDelete: AssessmentSummary.ID?
 
     var body: some View {
         if let room = model.room(id: roomID) {
@@ -28,18 +28,22 @@ struct RoomDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(history) { assessment in
-                        if assessment.canOpen {
-                            NavigationLink(value: Route.assessment(roomID: roomID, assessmentID: assessment.id)) {
-                                AssessmentRow(assessment: assessment)
+                        Group {
+                            if assessment.canOpen {
+                                NavigationLink(value: Route.assessment(roomID: roomID, assessmentID: assessment.id)) {
+                                    AssessmentRow(assessment: assessment)
+                                }
+                            } else {
+                                // Corrupt or saved by a newer app version: listed so it can still be deleted (§6).
+                                Label("Can't open this assessment", systemImage: "exclamationmark.triangle")
+                                    .foregroundStyle(.secondary)
                             }
-                        } else {
-                            // Corrupt or saved by a newer app version: listed so it can still be deleted (§6).
-                            Label("Can't open this assessment", systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.secondary)
                         }
-                    }
-                    .onDelete { offsets in
-                        assessmentsPendingDelete = Set(offsets.map { history[$0].id })
+                        // Same as the room list: no row-removal animation before the alert is answered.
+                        .swipeActions(allowsFullSwipe: false) {
+                            Button("Delete", systemImage: "trash") { assessmentPendingDelete = assessment.id }
+                                .tint(.red)
+                        }
                     }
                 } header: {
                     Text("History")
@@ -50,16 +54,15 @@ struct RoomDetailView: View {
                 }
             }
             .navigationTitle(room.name)
-            .confirmationDialog(
+            .alert(
                 "Delete this assessment?",
-                isPresented: Binding(get: { !assessmentsPendingDelete.isEmpty },
-                                     set: { if !$0 { assessmentsPendingDelete = [] } }),
-                titleVisibility: .visible,
-                presenting: assessmentsPendingDelete
-            ) { ids in
+                isPresented: Binding(get: { assessmentPendingDelete != nil },
+                                     set: { if !$0 { assessmentPendingDelete = nil } }),
+                presenting: assessmentPendingDelete
+            ) { id in
                 Button("Delete assessment", role: .destructive) {
                     Task {
-                        do { try await model.deleteAssessments(ids) }
+                        do { try await model.deleteAssessments([id]) }
                         catch { errorMessage = error.localizedDescription }
                     }
                 }

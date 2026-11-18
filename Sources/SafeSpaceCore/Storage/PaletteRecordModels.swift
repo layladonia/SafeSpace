@@ -196,7 +196,7 @@ public struct AssessmentSteps: Codable, Equatable, Sendable {
     public var quality: StepRecord<ContractJSON>
     public var anonymization: StepRecord<ContractJSON>
     public var palette: StepRecord<PaletteResult>
-    public var contrast: StepRecord<ContractJSON>
+    public var contrast: StepRecord<RegionContrastResult>
 }
 public struct AssessmentRecord: Codable, Equatable, Sendable, Identifiable {
     public var schemaVersion: String

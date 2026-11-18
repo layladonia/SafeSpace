@@ -42,7 +42,7 @@ public protocol AssessmentStore: Sendable {
     /// Newest first.
     func assessments(inRoom roomID: String) async throws -> [AssessmentSummary]
     /// Validates first and writes atomically. Returns the record as stored, which differs from
-    /// `output.record` when the image is kept (stored-image fields, label map, contrast reason).
+    /// `output.record` when the image is kept (stored-image fields, label map).
     @discardableResult func save(_ output: PipelineOutput) async throws -> AssessmentRecord
     /// Never recomputes: returns exactly what was saved.
     func load(assessmentID: String) async throws -> StoredAssessment
@@ -56,9 +56,10 @@ enum StoreRules {
     static let storedImageFile = "image.png", maskFile = "mask.png", labelMapFile = "labels.png"
 
     /// The record exactly as it will be saved. The pipeline doesn't know whether the image will
-    /// be kept, so it writes `stored: false` and contrast `image_unavailable`. When there is an
-    /// image to keep (D2: not after a failed anonymization; `storedImage` is nil then), storage
-    /// fills in the file names and contrast becomes `not_requested`.
+    /// be kept, so it writes `stored: false`; storage fills in the file names when there is an
+    /// image to keep (D2: not after a failed anonymization; `storedImage` is nil then). Contrast
+    /// needs no fixup here: `AssessmentPipeline.run` already keys contrast off the same
+    /// condition (anonymization not failed), so it's never `.completed` when `storedImage == nil`.
     ///
     /// PRIVACY (until Task 21): with NoOpAnonymizer the step is `skipped`, so per D2 the working
     /// copy is stored *without* faces or people hidden. Use only test photos without people.
@@ -70,9 +71,6 @@ enum StoreRules {
             record.image.storedFile = storedImageFile
             if record.steps.palette.status == .completed, output.labelMap != nil {
                 record.steps.palette.result?.labelMapFile = labelMapFile
-            }
-            if record.steps.contrast.status == .skipped, record.steps.contrast.reason == .imageUnavailable {
-                record.steps.contrast = .skipped(.notRequested)
             }
         }
         try AssessmentValidator.validate(record)

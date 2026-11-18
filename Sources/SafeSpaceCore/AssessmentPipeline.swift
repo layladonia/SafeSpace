@@ -108,6 +108,12 @@ public enum AssessmentPipeline {
             storedImage = copy.image
             progress(.anonymization, .skipped(.notImplemented))
         } else {
+            // Deliberately outside the do/catch: parameters that can't be encoded (e.g. NaN) abort
+            // the whole run instead of recording `failed`. A failed step must record its params,
+            // which JSON can't hold, and a failed step would still run the palette on the unmasked
+            // photo (§3.4); aborting computes nothing from faces. Same rule as non-finite
+            // qualityParams (review of PR #13, point 1). The app and CLI pass only `.v1`.
+            // Out-of-range but encodable params (e.g. blurRadiusPx = 0) still take the failed path.
             let json = try options.anonymizer.encodedParameters()
             let method = MethodRecord(name: options.anonymizer.methodName,
                 version: options.anonymizer.methodVersion, params: json)

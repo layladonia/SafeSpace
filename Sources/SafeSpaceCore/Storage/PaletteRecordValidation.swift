@@ -151,7 +151,9 @@ public enum AssessmentValidator {
         }
         if !errors.isEmpty { throw SafeSpaceError.validation(errors) }
     }
-    /// Preserves main's Task 19 quality validation and old-version compatibility.
+    /// Quality step (Task 19, contract §3.3 and §4.5). A completed step must carry a decodable
+    /// result whose warnings are exactly what its own metrics and recorded params imply. That
+    /// catches hand-edited files and a result saved with one threshold set and labelled with another.
     private static func validateQuality(_ r: AssessmentRecord, _ require: (Bool, String) -> Void) {
         let q = r.steps.quality
         switch q.status {
@@ -162,6 +164,9 @@ public enum AssessmentValidator {
         case .completed:
             break
         }
+        // Accept every version this build knows (1...current), not only the current one, so
+        // assessments saved before a later threshold or algorithm change still reopen (S6).
+        // Future versions are rejected: this build can't know their rules (review point 4).
         if let method = q.method {
             require(method.name == QualityCheck.methodName && (1...QualityCheck.methodVersion).contains(method.version),
                     "Unknown quality method or version")
@@ -172,6 +177,7 @@ public enum AssessmentValidator {
             params = try method.params.decoded(as: QualityParams.self)
             result = try rawResult.decoded(as: QualityResult.self)
         } catch {
+            // Keep the decoder's message (which field, which type) instead of one generic line.
             require(false, "Unreadable quality params or result: \(error)"); return
         }
         let m = result.metrics
@@ -183,12 +189,15 @@ public enum AssessmentValidator {
         require(m.blurLaplacianVariance >= 0, "Negative blur variance")
         require(m.originalLongSidePx == max(r.image.original.width, r.image.original.height),
                 "Quality long side disagrees with original image size")
+        // Re-deriving warnings uses this build's rules, which are only guaranteed to match the
+        // current version. Older-version records still get the structural checks below.
         if method.version == QualityCheck.methodVersion {
             require(result.warnings == QualityCheck.warnings(for: m, params: params),
                     "Quality warnings disagree with metrics and thresholds")
         }
         require(result.warnings == result.warnings.sorted { $0.rawValue < $1.rawValue }
                 && Set(result.warnings).count == result.warnings.count, "Quality warnings must be sorted and unique")
+        // Decision log Oct 11 / contract D3: a quality warning never blocks, so this is always true in v1.
         require(result.userContinued, "user_continued must be true in v1")
         if !result.warnings.isEmpty {
             require(r.findings.contains { $0.templateId == "limitation.quality_warning" }, "Missing quality limitation")

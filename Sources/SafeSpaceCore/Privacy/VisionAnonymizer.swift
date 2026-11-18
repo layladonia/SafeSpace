@@ -202,24 +202,46 @@ enum PrivacyMasking {
         guard expected == output.mask, output.result.maskedShare.isFinite,
               abs(share - output.result.maskedShare) <= 1e-12,
               (share > 0) == !output.result.regions.isEmpty else { throw AnonymizationError.invalidOutput }
-        // Eligible pixels must be untouched; masked pixels must have been obscured.
-        // "Obscured" is checked as: at least one masked pixel changed, unless every masked
-        // pixel had the same color to begin with (blurring a flat area changes nothing).
-        // This catches an anonymizer that returns the original image as "completed".
-        var maskedChanged = false, maskedUniform = true
-        var firstMasked: Int?
-        for i in expected.eligible.indices {
+        // Eligible pixels must be untouched (all four bytes).
+        for i in expected.eligible.indices where expected.eligible[i] {
             if i % 8192 == 0 { try Task.checkCancellation() }
-            let original = image.rgba[i*4..<i*4+4], result = output.anonymizedImage.rgba[i*4..<i*4+4]
-            if expected.eligible[i] {
-                if original != result { throw AnonymizationError.invalidOutput }
-            } else {
-                if original != result { maskedChanged = true }
-                if let f = firstMasked {
-                    if maskedUniform && image.rgba[f*4..<f*4+3] != image.rgba[i*4..<i*4+3] { maskedUniform = false }
-                } else { firstMasked = i }
+            if image.rgba[i*4..<i*4+4] != output.anonymizedImage.rgba[i*4..<i*4+4] {
+                throw AnonymizationError.invalidOutput
             }
         }
-        if firstMasked != nil && !maskedChanged && !maskedUniform { throw AnonymizationError.invalidOutput }
+        // Every region must actually be obscured, checked separately so one unblurred face
+        // can't hide behind another that was blurred.
+        for region in output.result.regions {
+            try Task.checkCancellation()
+            guard obscured(region.rect, original: image, output: output.anonymizedImage) else {
+                throw AnonymizationError.invalidOutput
+            }
+        }
+    }
+    /// Detail energy: the sum of squared RGB differences between horizontally and vertically
+    /// adjacent pixels inside the region. A blur lowers it sharply (a box blur of radius r cuts
+    /// a hard edge's energy to about 1/(2r+1)); returning the original, or changing a few pixels
+    /// or only alpha, leaves it about the same. A region with almost no detail (mean squared
+    /// step under 1 per channel) has nothing recognisable to hide and passes.
+    static let maxDetailRatio = 0.5
+    static func obscured(_ rect: NormalizedRect, original: SRGBImage, output: SRGBImage) -> Bool {
+        let w = original.width, b = rect.pixelBounds(width: w, height: original.height)
+        var before = 0, after = 0, pairs = 0
+        func add(_ i: Int, _ j: Int) {
+            pairs += 1
+            for c in 0..<3 {
+                let d0 = Int(original.rgba[i*4+c]) - Int(original.rgba[j*4+c])
+                let d1 = Int(output.rgba[i*4+c]) - Int(output.rgba[j*4+c])
+                before += d0 * d0; after += d1 * d1
+            }
+        }
+        for y in b.y0..<b.y1 {
+            for x in b.x0..<b.x1 {
+                if x + 1 < b.x1 { add(y*w+x, y*w+x+1) }
+                if y + 1 < b.y1 { add(y*w+x, (y+1)*w+x) }
+            }
+        }
+        guard pairs > 0, Double(before) / Double(pairs * 3) >= 1 else { return true }
+        return Double(after) <= maxDetailRatio * Double(before)
     }
 }

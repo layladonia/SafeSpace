@@ -60,8 +60,10 @@ enum StoreRules {
     /// image to keep (D2: not after a failed anonymization; `storedImage` is nil then), storage
     /// fills in the file names and contrast becomes `not_requested`.
     ///
-    /// Task 21: default pipeline supplies only the processed image. Failed privacy steps
-    /// cannot store a photo. Explicit NoOp dev/CLI opt-out retains the contract D2 behavior.
+    /// Task 21: after a completed anonymization `storedImage` is the anonymized copy, and a
+    /// failed one can't store a photo. When the step is skipped (`not_implemented` from
+    /// NoOpAnonymizer, or `disabled_by_user` from CLI --no-anonymize), the unmasked working
+    /// copy is stored per D2, so use only photos without people.
     static func recordToSave(_ output: PipelineOutput) throws -> AssessmentRecord {
         var record = output.record
         if record.steps.anonymization.status == .failed && output.storedImage != nil {

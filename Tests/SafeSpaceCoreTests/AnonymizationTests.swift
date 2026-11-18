@@ -212,6 +212,44 @@ final class AnonymizationTests: XCTestCase {
                                          mask: mask, anonymizedImage: flat)
         XCTAssertNoThrow(try PrivacyMasking.validate(output, against: flat))
     }
+    /// 16×16 black/white checkerboard: lots of detail, so a real blur flattens it.
+    private func checkerboard(alpha: UInt8 = 255) -> SRGBImage {
+        let px: [UInt8] = (0..<256).flatMap { i -> [UInt8] in
+            let v: UInt8 = ((i % 16) + (i / 16)) % 2 == 0 ? 0 : 255
+            return [v, v, v, alpha]
+        }
+        return .init(width: 16, height: 16, rgba: px)
+    }
+    private func output(_ img: SRGBImage, regions: [DetectedRegion], image anonymized: SRGBImage) throws -> AnonymizationOutput {
+        let full = try PrivacyMasking.apply(img, regions: regions, radius: 4, mayBeIncomplete: true)
+        return .init(result: full.result, mask: full.mask, anonymizedImage: anonymized)
+    }
+    func testRealBlurPassesObscuredCheck() throws {
+        let img = checkerboard()
+        let out = try PrivacyMasking.apply(img, regions: [region(0, 0, 0.5, 1), region(0.5, 0, 0.5, 0.5)],
+                                           radius: 1, mayBeIncomplete: true)
+        XCTAssertNoThrow(try PrivacyMasking.validate(out, against: img))
+    }
+    func testOneUnblurredRegionFailsEvenIfAnotherIsBlurred() throws {
+        let img = checkerboard()
+        let a = region(0, 0, 0.5, 1), b = region(0.5, 0, 0.5, 0.5)
+        let onlyA = try PrivacyMasking.apply(img, regions: [a], radius: 4, mayBeIncomplete: true).anonymizedImage
+        XCTAssertThrowsError(try PrivacyMasking.validate(output(img, regions: [a, b], image: onlyA), against: img))
+    }
+    func testChangingAFewMaskedPixelsIsNotObscuring() throws {
+        let img = checkerboard()
+        var touched = img.rgba
+        for i in [0, 17, 34] { touched[i*4] = 128 }
+        let out = try output(img, regions: [region(0, 0, 0.5, 1)], image: .init(width: 16, height: 16, rgba: touched))
+        XCTAssertThrowsError(try PrivacyMasking.validate(out, against: img))
+    }
+    func testAlphaOnlyChangeIsNotObscuring() throws {
+        let img = checkerboard(alpha: 128)
+        var opaque = img.rgba
+        for i in 0..<256 where (i % 16) < 8 { opaque[i*4+3] = 255 }
+        let out = try output(img, regions: [region(0, 0, 0.5, 1)], image: .init(width: 16, height: 16, rgba: opaque))
+        XCTAssertThrowsError(try PrivacyMasking.validate(out, against: img))
+    }
     func testVisionUnsupportedErrorsMapToUnavailable() {
         for code in [8, 16, 19, 21, 22] {
             XCTAssertTrue(PrivacyMasking.isVisionUnavailable(NSError(domain: "com.apple.Vision", code: code)), "code \(code)")

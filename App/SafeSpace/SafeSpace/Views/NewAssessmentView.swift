@@ -94,9 +94,9 @@ struct NewAssessmentView: View {
     @MainActor private func analyze() {
         guard let input = photo, !isAnalyzing else { return }
         isAnalyzing = true; errorMessage = nil
-        // The task owns the input only while processing. Drop the view's original preview
-        // and PhotosPicker reference immediately, including on errors/cancellation.
-        photo = nil; selection = nil
+        // The original stays in memory only (never on disk). It is dropped on success, on
+        // Cancel (cancel()) and when the view goes away; after a failure it is kept so the
+        // user can retry without picking the photo again (a camera shot can't be re-picked).
         analysisTask = Task { @MainActor in
             defer { isAnalyzing = false; analysisTask = nil }
             do {
@@ -107,7 +107,6 @@ struct NewAssessmentView: View {
             } catch is CancellationError {
                 photo = nil; selection = nil
             } catch {
-                photo = nil; selection = nil
                 errorMessage = error.localizedDescription
             }
         }

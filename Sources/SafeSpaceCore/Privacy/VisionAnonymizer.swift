@@ -60,6 +60,9 @@ public struct VisionAnonymizer: Anonymizer {
         catch is CancellationError { throw CancellationError() }
         catch {
             try Task.checkCancellation()
+            // The Simulator and some devices can't run these requests at all; that is
+            // "detection couldn't run on this device", not a failed attempt.
+            if PrivacyMasking.isVisionUnavailable(error) { throw AnonymizationError.detectionUnavailable }
             throw error
         }
         try Task.checkCancellation()
@@ -99,6 +102,15 @@ public struct VisionAnonymizer: Anonymizer {
 /// Pure mask/blur helpers also exercised on non-Apple platforms. Blur is a separable
 /// box blur with radius in working-copy pixels, copied back ONLY inside the mask.
 enum PrivacyMasking {
+    static let visionErrorDomain = "com.apple.Vision"
+    /// VNErrorCode raw values meaning the request can't run here: notImplemented (8),
+    /// unsupportedRevision (16), unsupportedRequest (19), unsupportedComputeStage (21),
+    /// unsupportedComputeDevice (22). Raw values avoid per-case availability checks.
+    static let visionUnavailableCodes: Set<Int> = [8, 16, 19, 21, 22]
+    static func isVisionUnavailable(_ error: Error) -> Bool {
+        let e = error as NSError
+        return e.domain == visionErrorDomain && visionUnavailableCodes.contains(e.code)
+    }
     /// One rectangle-to-mask implementation for analysis, storage, and record validation.
     /// Uses the existing EligibilityMask rasterization and overlap rules unchanged.
     static func deriveMask(width: Int, height: Int,
@@ -190,11 +202,24 @@ enum PrivacyMasking {
         guard expected == output.mask, output.result.maskedShare.isFinite,
               abs(share - output.result.maskedShare) <= 1e-12,
               (share > 0) == !output.result.regions.isEmpty else { throw AnonymizationError.invalidOutput }
-        for i in expected.eligible.indices where expected.eligible[i] {
+        // Eligible pixels must be untouched; masked pixels must have been obscured.
+        // "Obscured" is checked as: at least one masked pixel changed, unless every masked
+        // pixel had the same color to begin with (blurring a flat area changes nothing).
+        // This catches an anonymizer that returns the original image as "completed".
+        var maskedChanged = false, maskedUniform = true
+        var firstMasked: Int?
+        for i in expected.eligible.indices {
             if i % 8192 == 0 { try Task.checkCancellation() }
-            for c in 0..<4 where image.rgba[i*4+c] != output.anonymizedImage.rgba[i*4+c] {
-                throw AnonymizationError.invalidOutput
+            let original = image.rgba[i*4..<i*4+4], result = output.anonymizedImage.rgba[i*4..<i*4+4]
+            if expected.eligible[i] {
+                if original != result { throw AnonymizationError.invalidOutput }
+            } else {
+                if original != result { maskedChanged = true }
+                if let f = firstMasked {
+                    if maskedUniform && image.rgba[f*4..<f*4+3] != image.rgba[i*4..<i*4+3] { maskedUniform = false }
+                } else { firstMasked = i }
             }
         }
+        if firstMasked != nil && !maskedChanged && !maskedUniform { throw AnonymizationError.invalidOutput }
     }
 }

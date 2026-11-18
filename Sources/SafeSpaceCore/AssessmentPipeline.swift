@@ -53,6 +53,8 @@ public struct PipelineOptions: Sendable {
     public var paletteParams: PaletteParams = .v1
     public var qualityParams: QualityParams = .v1
     public var runQuality = true
+    /// false records anonymization as `skipped / disabled_by_user` (CLI `--no-anonymize`).
+    public var runAnonymization = true
     public var anonymizer: any Anonymizer = VisionAnonymizer()
     public init() {}
 }
@@ -82,7 +84,12 @@ public enum AssessmentPipeline {
         var storedImage: SRGBImage?
         var mask = EligibilityMask.all(width: copy.image.width, height: copy.image.height)
         let privacy: StepRecord<AnonymizationResult>
-        if options.anonymizer is NoOpAnonymizer {
+        if !options.runAnonymization {
+            // Explicit opt-out (CLI --no-anonymize); stored like the §3.4 / D2 skipped case.
+            privacy = .skipped(.disabledByUser)
+            storedImage = copy.image
+            progress(.anonymization, .skipped(.disabledByUser))
+        } else if options.anonymizer is NoOpAnonymizer {
             // Explicit dev/CLI opt-out only; preserve §3.4 / D2 skipped behavior.
             privacy = .skipped(.notImplemented)
             storedImage = copy.image

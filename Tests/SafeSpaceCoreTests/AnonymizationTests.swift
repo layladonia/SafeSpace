@@ -1,5 +1,8 @@
 import XCTest
 @testable import SafeSpaceCore
+#if canImport(Vision)
+import Vision
+#endif
 
 final class AnonymizationTests: XCTestCase {
     private var image: SRGBImage {
@@ -10,11 +13,13 @@ final class AnonymizationTests: XCTestCase {
                         _ h: Double = 1) -> DetectedRegion {
         .init(kind: "person", rect: .init(x: x, y: y, width: w, height: h), confidence: 1)
     }
-    private func run(_ anonymizer: any Anonymizer, room: String = UUID().uuidString.lowercased()) async throws -> PipelineOutput {
+    private func run(_ anonymizer: any Anonymizer, room: String = UUID().uuidString.lowercased(),
+                     input: SRGBImage? = nil, runAnonymization: Bool = true) async throws -> PipelineOutput {
         var options = PipelineOptions(); options.anonymizer = anonymizer
+        options.runAnonymization = runAnonymization
         options.paletteParams.mergeDeltaEOk = 0
         options.paletteParams.minShare = 0
-        return try await AssessmentPipeline.run(imageData: image.pngData(), source: .library, roomID: room,
+        return try await AssessmentPipeline.run(imageData: (input ?? image).pngData(), source: .library, roomID: room,
             producer: .init(kind: "app", appVersion: "test", coreVersion: SafeSpaceCore.version,
                             device: "test", os: "test"), options: options)
     }
@@ -183,6 +188,62 @@ final class AnonymizationTests: XCTestCase {
         throw XCTSkip("Vision is unavailable on this platform")
         #endif
     }
+    func testRunAnonymizationFalseSkipsAsDisabledByUser() async throws {
+        let output = try await run(FixtureAnonymizer(regions: [region()]), runAnonymization: false)
+        XCTAssertEqual(output.record.steps.anonymization.status, .skipped)
+        XCTAssertEqual(output.record.steps.anonymization.reason, .disabledByUser)
+        XCTAssertEqual(output.record.steps.palette.result?.maskApplied, false)
+        XCTAssertEqual(output.storedImage, image)
+        XCTAssertTrue(output.record.findings.contains { $0.templateId == "limitation.people_not_masked" })
+        try AssessmentValidator.validate(output.record)
+    }
+    func testAnonymizerReturningUnblurredImageIsFailure() async throws {
+        let output = try await run(FixtureAnonymizer(regions: [region(0.25, 0, 0.5, 1)], returnOriginal: true))
+        XCTAssertEqual(output.record.steps.anonymization.status, .failed)
+        XCTAssertEqual(output.record.steps.anonymization.reason, .anonymizationFailed)
+        XCTAssertNil(output.storedImage)
+    }
+    func testUnchangedFlatMaskedAreaIsAccepted() throws {
+        // A one-color masked area looks the same blurred or not, so "unchanged" is not a leak.
+        let flat = SRGBImage(width: 8, height: 8, rgba: Array([UInt8]([10, 20, 30, 255]).repeated(64)))
+        let regions = [region()]
+        let mask = try PrivacyMasking.deriveMask(width: 8, height: 8, regions: regions)
+        let output = AnonymizationOutput(result: .init(regions: regions, maskedShare: 0.5, mayBeIncomplete: true),
+                                         mask: mask, anonymizedImage: flat)
+        XCTAssertNoThrow(try PrivacyMasking.validate(output, against: flat))
+    }
+    func testVisionUnsupportedErrorsMapToUnavailable() {
+        for code in [8, 16, 19, 21, 22] {
+            XCTAssertTrue(PrivacyMasking.isVisionUnavailable(NSError(domain: "com.apple.Vision", code: code)), "code \(code)")
+        }
+        XCTAssertFalse(PrivacyMasking.isVisionUnavailable(NSError(domain: "com.apple.Vision", code: 9)))
+        XCTAssertFalse(PrivacyMasking.isVisionUnavailable(NSError(domain: "other", code: 19)))
+        XCTAssertFalse(PrivacyMasking.isVisionUnavailable(AnonymizationError.detectionFailed))
+        #if canImport(Vision)
+        XCTAssertEqual(VNErrorDomain, PrivacyMasking.visionErrorDomain)
+        XCTAssertEqual(PrivacyMasking.visionUnavailableCodes, [VNErrorCode.notImplemented.rawValue,
+            VNErrorCode.unsupportedRevision.rawValue, VNErrorCode.unsupportedRequest.rawValue, 21, 22])
+        if #available(macOS 14, iOS 17, *) {
+            XCTAssertEqual(VNErrorCode.unsupportedComputeStage.rawValue, 21)
+            XCTAssertEqual(VNErrorCode.unsupportedComputeDevice.rawValue, 22)
+        }
+        #endif
+    }
+    func testValidatorUsesRecordedMaxLongSide() async throws {
+        var record = try await run(FixtureAnonymizer(regions: [region()])).record
+        // A larger working copy (e.g. maxLongSide 2048) with consistent mask and palette counts.
+        record.image.workingCopy.width = 2048; record.image.workingCopy.height = 1536
+        record.image.workingCopy.maxLongSide = 2048
+        record.steps.palette.result?.eligiblePixelCount = 2048 * 1536 / 2
+        func errors(_ r: AssessmentRecord) -> [String] {
+            do { try AssessmentValidator.validate(r); return [] }
+            catch SafeSpaceError.validation(let messages) { return messages }
+            catch { return ["\(error)"] }
+        }
+        XCTAssertFalse(errors(record).contains("Invalid privacy working dimensions"), "\(errors(record))")
+        record.image.workingCopy.maxLongSide = 1024
+        XCTAssertTrue(errors(record).contains("Invalid privacy working dimensions"))
+    }
     func testNoOpRemainsAnExplicitSkippedOptOut() async throws {
         let output = try await run(NoOpAnonymizer())
         XCTAssertEqual(output.record.steps.anonymization.status, .skipped)
@@ -195,6 +256,7 @@ private struct FixtureAnonymizer: Anonymizer {
     var failure: AnonymizationError? = nil
     var cancel = false
     var invalidOutput = false
+    var returnOriginal = false
     var params: AnonymizationParams = .v1
     var methodName: String = "vision_faces_people"
     var methodVersion: Int { 1 }
@@ -205,10 +267,15 @@ private struct FixtureAnonymizer: Anonymizer {
         if cancel { throw CancellationError() }
         if let failure { throw failure }
         let output = try PrivacyMasking.apply(copy.image, regions: regions, radius: params.blurRadiusPx, mayBeIncomplete: true)
+        if returnOriginal { return .init(result: output.result, mask: output.mask, anonymizedImage: copy.image) }
         if invalidOutput {
             return .init(result: .init(regions: [], maskedShare: 0.5, mayBeIncomplete: true),
                          mask: output.mask, anonymizedImage: output.anonymizedImage)
         }
         return output
     }
+}
+
+private extension Array {
+    func repeated(_ n: Int) -> [Element] { (0..<n).flatMap { _ in self } }
 }

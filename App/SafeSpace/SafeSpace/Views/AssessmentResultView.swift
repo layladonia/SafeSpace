@@ -34,7 +34,9 @@ struct AssessmentResultView: View {
                             Text(assessment.record.steps.anonymization.reason == .detectionUnavailable
                                  ? "Face and person detection couldn't run on this device."
                                  : "The app couldn't hide faces and people.")
-                            Text("No photo copy was saved. The color results include the unmasked photo pixels.")
+                            Text(assessment.record.steps.palette.result == nil
+                                 ? "No photo copy was saved."
+                                 : "No photo copy was saved. The color results include the unmasked photo pixels.")
                         }
                     }
                     if let result = assessment.record.steps.palette.result {

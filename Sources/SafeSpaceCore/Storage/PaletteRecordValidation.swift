@@ -59,7 +59,8 @@ public enum AssessmentValidator {
                 require(result.regions.allSatisfy(PrivacyMasking.valid), "Invalid detected region")
                 if result.regions.allSatisfy(PrivacyMasking.valid) {
                     let w = r.image.workingCopy.width, h = r.image.workingCopy.height
-                    if w > 0 && h > 0 && w <= 1024 && h <= 1024 {
+                    let maxSide = r.image.workingCopy.maxLongSide
+                    if w > 0 && h > 0 && maxSide > 0 && max(w, h) <= maxSide {
                         do {
                             let mask = try PrivacyMasking.deriveMask(width: w, height: h,
                                                                    regions: result.regions)

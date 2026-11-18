@@ -15,7 +15,7 @@ struct RegionCompareView: View {
     @State private var box2Center: CGPoint = .zero
     @State private var hasPlacedDefaults = false
     @State private var isComputing = false
-    @State private var resultText: String?
+    @State private var lastDeltaE: Double?
     @State private var errorMessage: String?
 
     private static let boxSize = CGSize(width: 60, height: 60)
@@ -26,9 +26,9 @@ struct RegionCompareView: View {
                 GeometryReader { geo in
                     ZStack {
                         Image(uiImage: uiImage).resizable().scaledToFit()
-                        DraggableBox(color: .blue, label: "1", dashed: false, size: Self.boxSize,
+                        DraggableBox(color: .blue, label: "A", dashed: false, size: Self.boxSize,
                                      center: $box1Center, bounds: displayRect)
-                        DraggableBox(color: .orange, label: "2", dashed: true, size: Self.boxSize,
+                        DraggableBox(color: .orange, label: "B", dashed: true, size: Self.boxSize,
                                      center: $box2Center, bounds: displayRect)
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
@@ -36,7 +36,16 @@ struct RegionCompareView: View {
                 }
                 .overlay(alignment: .bottom) {
                     VStack(spacing: 8) {
-                        if let resultText { Text(resultText).font(.headline) }
+                        if let lastDeltaE {
+                            VStack(spacing: 4) {
+                                Text("Region A vs. Region B").font(.headline)
+                                Text("ΔE00 = \(lastDeltaE.formatted(.number.precision(.fractionLength(2))))")
+                                    .font(.title3.bold())
+                                Text("An image-derived color difference was detected between the selected "
+                                    + "regions. Larger ΔE00 values indicate greater color difference.")
+                                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            }
+                        }
                         Button {
                             compute(image: image, mask: mask, record: assessment.record)
                         } label: {
@@ -116,11 +125,11 @@ struct RegionCompareView: View {
                 let updated = try await model.addContrastMeasurement(
                     to: record, image: image, mask: mask, region1: region1, region2: region2
                 )
-                guard let result = updated.steps.contrast.result, let measurement = result.measurements.last else { return }
-                resultText = "ΔE \(measurement.deltaE.formatted(.number.precision(.fractionLength(1)))) "
-                    + "· \(result.colorSpace.uppercased()) · \(result.formula.uppercased())"
+                guard let measurement = updated.steps.contrast.result?.measurements.last else { return }
+                lastDeltaE = measurement.deltaE
             } catch RegionContrastError.regionTooSmall(let region) {
-                errorMessage = "Area \(region) is too small to measure reliably — drag it over a bigger patch of color."
+                let label = region == 1 ? "A" : "B"
+                errorMessage = "Region \(label) is too small to measure reliably — drag it over a bigger patch of color."
             } catch {
                 errorMessage = error.localizedDescription
             }

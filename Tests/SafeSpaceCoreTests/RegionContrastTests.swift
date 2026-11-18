@@ -191,6 +191,34 @@ final class RegionContrastTests: XCTestCase {
         XCTAssertThrowsError(try AssessmentPipeline.addContrast(to: output.record, image: image, mask: mask, region1: sliver, region2: rightHalf))
     }
 
+    /// Fixture photos: a plain vertical split, solid color on each half (TestImages/).
+    private static let testImagesDir = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().appendingPathComponent("TestImages")
+
+    func testContrastReferenceImages() throws {
+        let cases: [(file: String, expectedDeltaE: Double)] = [
+            ("contrasttest1.jpg", 1.65),
+            ("contrasttest2.jpg", 4.19),
+            ("contrasttest3.jpg", 5.73),
+            ("contrasttest4.jpg", 8.45),
+            ("contrasttest5.jpg", 24.11),
+            ("contrasttest6.jpg", 57.02),
+        ]
+        // Each fixture is a real exported JPEG of an intended hex swatch pair, not the swatch
+        // itself: region1's measured average matches its intended hex almost to machine
+        // precision in every file, but region2 drifts further from its intended hex as the
+        // two swatches get more different (up to ~0.9 ΔE00 of drift on the most extreme pair,
+        // contrasttest6) — ordinary JPEG-compression/photographic noise, not a region-selection
+        // bug. 0.5 comfortably covers the worst observed drift while still catching a real
+        // regression in the CIELAB/CIEDE2000 pipeline.
+        for (file, expected) in cases {
+            let copy = try ImageLoader.load(url: Self.testImagesDir.appendingPathComponent(file))
+            let mask = EligibilityMask.all(width: copy.image.width, height: copy.image.height)
+            let result = try RegionContrast.measure(copy.image, mask: mask, region1: leftHalf, region2: rightHalf)
+            XCTAssertEqual(result.deltaE, expected, accuracy: 0.5, file)
+        }
+    }
+
     func testFindingWordingHasNoBannedTerms() {
         let text = "This number measures the color difference between the two selected areas in this photo. "
             + "It does not measure whether a person can see that difference, and it is not a judgment about the room."

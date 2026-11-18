@@ -99,8 +99,9 @@ enum AnalyzeCommand {
         pipeline.paletteMethod = o.method
         if let seed = o.seed { pipeline.paletteParams.seed = seed }
         pipeline.runQuality = !o.noQuality
-        // VisionAnonymizer is Task 21; until then every run uses NoOpAnonymizer and
-        // --no-anonymize changes nothing.
+        // Default is VisionAnonymizer, same as the app (contract §7). --no-anonymize records the
+        // step as skipped/disabled_by_user so calibration runs can compare with and without masking.
+        pipeline.runAnonymization = !o.noAnonymize
         let producer = Producer(kind: "cli", appVersion: nil, coreVersion: SafeSpaceCore.version,
                                 device: deviceModel(), os: ProcessInfo.processInfo.operatingSystemVersionString)
 
@@ -203,15 +204,17 @@ enum AnalyzeCommand {
         if case .object(let params)? = palette.method?.params, case .number(let s)? = params["seed"] { seed = String(UInt64(s)) }
         // Quality cells (Task 19) come from the stored result, so the CSV can't disagree with
         // assessment.json; they stay empty unless the step completed. Warnings are joined with ";"
-        // (contract section 7.1). Anonymization cells are Task 21 and stay empty for now.
+        // (contract section 7.1). Anonymization cells likewise stay empty unless that step completed.
         let q = r.qualityResult
+        let privacy = r.steps.anonymization.status == .completed ? r.steps.anonymization.result : nil
+        func count(_ kind: String) -> String { privacy.map { String($0.regions.filter { $0.kind == kind }.count) } ?? "" }
         return [item.imageID, variant, item.url.lastPathComponent, item.manifest?.roomType ?? "",
                 item.manifest?.peoplePresent ?? "", item.manifest?.qualityLabel ?? "", r.steps.quality.status.rawValue,
                 q.map { $0.warnings.map(\.rawValue).joined(separator: ";") } ?? "",
                 CSV.number(q?.metrics.meanLuminance), CSV.number(q?.metrics.clippedDarkShare),
                 CSV.number(q?.metrics.clippedBrightShare), CSV.number(q?.metrics.blurLaplacianVariance),
                 String(max(r.image.original.width, r.image.original.height)),
-                r.steps.anonymization.status.rawValue, "", "", "",
+                r.steps.anonymization.status.rawValue, count("face"), count("person"), CSV.number(privacy?.maskedShare),
                 palette.status.rawValue, palette.method?.name ?? "", seed,
                 palette.result.map { String($0.colors.count) } ?? "", CSV.number(palette.result?.droppedShare),
                 r.overallState.rawValue, String(output.totalDurationMs), r.producer.coreVersion]

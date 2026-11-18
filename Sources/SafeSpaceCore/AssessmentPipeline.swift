@@ -47,12 +47,14 @@ public struct AnonymizationOutput: Sendable {
 public protocol Anonymizer: Sendable {
     var methodName: String { get }
     var methodVersion: Int { get }
+    func encodedParameters() throws -> ContractJSON
     func anonymize(_ copy: WorkingCopy) async throws -> AnonymizationOutput
 }
 public struct NoOpAnonymizer: Anonymizer {
     public var methodName: String { "not_implemented" }
     public var methodVersion: Int { 1 }
     public init() {}
+    public func encodedParameters() throws -> ContractJSON { .object([:]) }
     public func anonymize(_ copy: WorkingCopy) async throws -> AnonymizationOutput {
         .init(result: .init(regions: [], maskedShare: 0, mayBeIncomplete: true),
               mask: .all(width: copy.image.width, height: copy.image.height), anonymizedImage: copy.image)
@@ -63,7 +65,9 @@ public struct PipelineOptions: Sendable {
     public var paletteParams: PaletteParams = .v1
     public var qualityParams: QualityParams = .v1
     public var runQuality = true
-    public var anonymizer: any Anonymizer = NoOpAnonymizer()
+    /// false records anonymization as `skipped / disabled_by_user` (CLI `--no-anonymize`).
+    public var runAnonymization = true
+    public var anonymizer: any Anonymizer = VisionAnonymizer()
     /// The two boxes drawn on the region-selection screen, in normalized (0-1) image
     /// coordinates. Both must be set to run contrast; leave both nil (the default) when the
     /// user hasn't selected two regions yet, which keeps the step `skipped(.notRequested)`.
@@ -82,7 +86,9 @@ public enum AssessmentPipeline {
     public static func run(imageData: Data, source: ImageSource, roomID: String,
                            producer: Producer, options: PipelineOptions = .init(),
                            progress: @Sendable (StepID, StepState) -> Void = { _, _ in }) async throws -> PipelineOutput {
-        // Non-main-actor asynchronous entry point. All CPU work is in Core.
+        // Non-actor-isolated async entry point. Under this package's Swift 5.9
+        // execution model, processing runs on the generic executor rather than
+        // inheriting the caller's MainActor isolation.
         let start = Date()
         try Task.checkCancellation()
         let copy: WorkingCopy
@@ -91,19 +97,58 @@ public enum AssessmentPipeline {
         catch let error as SafeSpaceError { throw error }
         catch { throw SafeSpaceError.load(.unreadableData) }
         let quality = try runQuality(copy, options: options, progress: progress)
-        // Week-2 scope intentionally ships only NoOpAnonymizer. Do not silently
-        // accept a real anonymizer and omit its method parameters/provenance.
-        let privacy: StepRecord<ContractJSON>
-        if options.anonymizer is NoOpAnonymizer {
+        var analysisImage = copy.image
+        var storedImage: SRGBImage?
+        var mask = EligibilityMask.all(width: copy.image.width, height: copy.image.height)
+        let privacy: StepRecord<AnonymizationResult>
+        if !options.runAnonymization {
+            // Explicit opt-out (CLI --no-anonymize); stored like the §3.4 / D2 skipped case.
+            privacy = .skipped(.disabledByUser)
+            storedImage = copy.image
+            progress(.anonymization, .skipped(.disabledByUser))
+        } else if options.anonymizer is NoOpAnonymizer {
+            // Placeholder anonymizer (tests and early builds): skipped / not_implemented, and the
+            // unmasked copy is stored per D2. The CLI's --no-anonymize uses runAnonymization above.
             privacy = .skipped(.notImplemented)
+            storedImage = copy.image
             progress(.anonymization, .skipped(.notImplemented))
         } else {
-            privacy = .init(status: .failed, reason: .anonymizationFailed, durationMs: 0,
-                method: .init(name: options.anonymizer.methodName, version: options.anonymizer.methodVersion,
-                              params: .object([:])), result: nil)
-            progress(.anonymization, .failed(.anonymizationFailed))
+            // Deliberately outside the do/catch: parameters that can't be encoded (e.g. NaN) abort
+            // the whole run instead of recording `failed`. A failed step must record its params,
+            // which JSON can't hold, and a failed step would still run the palette on the unmasked
+            // photo (§3.4); aborting computes nothing from faces. Same rule as non-finite
+            // qualityParams (review of PR #13, point 1). The app and CLI pass only `.v1`.
+            // Out-of-range but encodable params (e.g. blurRadiusPx = 0) still take the failed path.
+            let json = try options.anonymizer.encodedParameters()
+            let method = MethodRecord(name: options.anonymizer.methodName,
+                version: options.anonymizer.methodVersion, params: json)
+            let privacyStart = Date()
+            progress(.anonymization, .running)
+            do {
+                let output = try await options.anonymizer.anonymize(copy)
+                // Validate every anonymizer's output at the pipeline boundary,
+                // including that eligible pixels were not changed.
+                try PrivacyMasking.validate(output, against: copy.image)
+                try Task.checkCancellation()
+                analysisImage = output.anonymizedImage
+                storedImage = output.anonymizedImage
+                mask = output.mask
+                privacy = .init(status: .completed, reason: nil, durationMs: elapsed(privacyStart),
+                                method: method, result: output.result)
+                progress(.anonymization, .completed)
+            } catch is CancellationError { throw CancellationError() }
+            catch {
+                let reason: ReasonCode
+                if let failure = error as? AnonymizationError, case .detectionUnavailable = failure {
+                    reason = .detectionUnavailable
+                } else { reason = .anonymizationFailed }
+                privacy = .init(status: .failed, reason: reason, durationMs: elapsed(privacyStart),
+                                method: method, result: nil)
+                // §3.4: palette continues unmasked. D2: never persist this photo.
+                storedImage = nil
+                progress(.anonymization, .failed(reason))
+            }
         }
-        let mask = EligibilityMask.all(width: copy.image.width, height: copy.image.height)
         let extractor = makePaletteExtractor(options.paletteMethod)
         let encodedParams = try AssessmentJSON.encoder().encode(options.paletteParams)
         let params = try JSONDecoder().decode(ContractJSON.self, from: encodedParams)
@@ -113,7 +158,7 @@ public enum AssessmentPipeline {
         var palette: StepRecord<PaletteResult>
         var map: [UInt8]?
         do {
-            let output = try extractor.extract(copy.image, mask: mask, params: options.paletteParams)
+            let output = try extractor.extract(analysisImage, mask: mask, params: options.paletteParams)
             palette = .init(status: .completed, reason: nil, durationMs: elapsed(paletteStart),
                             method: method, result: output.result)
             map = output.labelMap
@@ -162,7 +207,7 @@ public enum AssessmentPipeline {
         try Task.checkCancellation()
         // Structural programming errors must not be hidden as successful output.
         try AssessmentValidator.validate(record)
-        return PipelineOutput(record: record, storedImage: privacy.status == .failed ? nil : copy.image,
+        return PipelineOutput(record: record, storedImage: storedImage,
                               mask: mask, labelMap: map, totalDurationMs: elapsed(start))
     }
 

@@ -12,7 +12,10 @@ final class AssessmentStoreTests: XCTestCase {
         let pixels: [[UInt8]] = Array(repeating: [220, 205, 180], count: 12) + Array(repeating: [90, 60, 40], count: 4)
         let image = SRGBImage(width: 4, height: 4, rgba: pixels.flatMap { $0 + [255] })
         let producer = Producer(kind: "app", appVersion: "test", coreVersion: SafeSpaceCore.version, device: "test", os: "test")
-        return try await AssessmentPipeline.run(imageData: image.pngData(), source: .library, roomID: roomID, producer: producer)
+        var options = PipelineOptions()
+        options.anonymizer = NoOpAnonymizer()
+        return try await AssessmentPipeline.run(imageData: image.pngData(), source: .library, roomID: roomID,
+                                                producer: producer, options: options)
     }
     private func stores() -> [(String, any AssessmentStore)] {
         [("file", FileAssessmentStore(root: root)), ("memory", InMemoryAssessmentStore())]
@@ -174,7 +177,8 @@ final class AssessmentStoreTests: XCTestCase {
         let output = try await analyze(roomID: room.id)
         var record = output.record
         record.steps.anonymization = .init(status: .failed, reason: .anonymizationFailed, durationMs: 0,
-            method: .init(name: "test", version: 1, params: .object([:])), result: nil)
+            method: .init(name: VisionAnonymizer.methodName, version: VisionAnonymizer.methodVersion,
+                          params: try ContractJSON.encoding(AnonymizationParams.v1)), result: nil)
         let failed = PipelineOutput(record: record, storedImage: nil, mask: output.mask, labelMap: output.labelMap,
                                     totalDurationMs: 0)
         let saved = try await store.save(failed)

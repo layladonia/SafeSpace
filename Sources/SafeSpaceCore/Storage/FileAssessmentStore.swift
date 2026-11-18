@@ -74,7 +74,12 @@ public actor FileAssessmentStore: AssessmentStore {
             try writing {
                 try? fm.removeItem(at: temp)
                 try fm.createDirectory(at: temp, withIntermediateDirectories: true)
-                try write(AssessmentJSON.encode(record), to: temp.appendingPathComponent("assessment.json"))
+                // recordToSave already validated this exact, immutable record.
+                // Use the same configured encoder without repeating full validation.
+                try write(
+                    AssessmentJSON.encoder().encode(record),
+                    to: temp.appendingPathComponent("assessment.json")
+                )
                 if record.image.stored, let image = output.storedImage {
                     try write(image.pngData(), to: temp.appendingPathComponent(StoreRules.storedImageFile))
                     try write(output.mask.pngData(), to: temp.appendingPathComponent(StoreRules.maskFile))

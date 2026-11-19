@@ -13,10 +13,14 @@ struct RegionComparisonResult: View {
                 swatch("Region A", lab: measurement.region1.cielab)
                 swatch("Region B", lab: measurement.region2.cielab)
             }
-            Text("ΔE00 = \(measurement.deltaE.formatted(.number.precision(.fractionLength(2))))")
+            Text("ΔE00 = \(displayedDeltaE.formatted(.number.precision(.fractionLength(1))))")
                 .font(.title2.bold()).monospacedDigit()
-            Text("Larger ΔE00 values indicate a greater color difference between the selected areas in this photo.")
-                .font(.subheadline).foregroundStyle(.secondary)
+            if let band = ContrastDifferenceBand(deltaE: displayedDeltaE) {
+                Text(band.title).font(.headline)
+                Text(band.guidance).font(.subheadline)
+            }
+            Text("These ranges are a rough visual guide, not official CIE cutoffs or a judgment about whether someone will see the difference.")
+                .font(.footnote).foregroundStyle(.secondary)
             DisclosureGroup("Measurement details") {
                 Text(methodDescription)
                 Text("A: \(labText(measurement.region1.cielab))")
@@ -27,6 +31,10 @@ struct RegionComparisonResult: View {
             .font(.footnote)
         }
         .padding(.vertical, 4)
+    }
+
+    private var displayedDeltaE: Double {
+        (measurement.deltaE * 10).rounded() / 10
     }
 
     private var methodDescription: String {

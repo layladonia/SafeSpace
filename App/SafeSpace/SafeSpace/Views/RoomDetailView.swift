@@ -25,9 +25,13 @@ struct RoomDetailView: View {
                         Button {
                             router.push(.newAssessment(roomID: roomID))
                         } label: {
-                            Label("New assessment", systemImage: "camera")
+                            Text("New assessment")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
+                                .overlay(alignment: .leading) {
+                                    Image(systemName: "camera")
+                                        .accessibilityHidden(true)
+                                }
                                 .padding(.vertical, 5)
                         }
                         .buttonStyle(.borderedProminent)

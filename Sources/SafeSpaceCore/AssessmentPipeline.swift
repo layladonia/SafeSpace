@@ -138,6 +138,7 @@ public enum AssessmentPipeline {
                 progress(.anonymization, .completed)
             } catch is CancellationError { throw CancellationError() }
             catch {
+                NSLog("SafeSpace privacy anonymization failed: %@", String(reflecting: error))
                 let reason: ReasonCode
                 if let failure = error as? AnonymizationError, case .detectionUnavailable = failure {
                     reason = .detectionUnavailable

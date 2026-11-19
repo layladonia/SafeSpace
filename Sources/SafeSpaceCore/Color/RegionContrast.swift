@@ -38,6 +38,54 @@ public struct RegionContrastResult: Codable, Equatable, Sendable {
     public var measurements: [ContrastMeasurement]
 }
 
+public enum ContrastDifferenceBand: Sendable, Equatable {
+    case imperceptible
+    case veryLow
+    case moderate
+    case clear
+    case high
+    case veryHigh
+
+    public init?(deltaE: Double) {
+        guard deltaE.isFinite, deltaE >= 0 else { return nil }
+        if deltaE <= 1 {
+            self = .imperceptible
+        } else if deltaE <= 5 {
+            self = .veryLow
+        } else if deltaE <= 15 {
+            self = .moderate
+        } else if deltaE <= 30 {
+            self = .clear
+        } else if deltaE <= 60 {
+            self = .high
+        } else {
+            self = .veryHigh
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .imperceptible: "Imperceptible"
+        case .veryLow: "Very low contrast"
+        case .moderate: "Moderate difference"
+        case .clear: "Clear difference"
+        case .high: "High contrast / distinct"
+        case .veryHigh: "Very high contrast"
+        }
+    }
+
+    public var guidance: String {
+        switch self {
+        case .imperceptible: "A very small measured color difference."
+        case .veryLow: "A small measured color difference."
+        case .moderate: "A moderate measured difference between the selected areas."
+        case .clear: "A clear measured difference between the selected areas."
+        case .high: "A large measured difference between the selected areas."
+        case .veryHigh: "A very large measured difference between the selected areas."
+        }
+    }
+}
+
 public enum RegionContrastError: Error, Sendable {
     /// Fewer than `minEligiblePixels` eligible pixels landed in this region (contract §4.8);
     /// the UI should ask the user to draw a larger box.

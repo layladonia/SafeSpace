@@ -224,13 +224,21 @@ public enum AssessmentPipeline {
         minEligiblePixels: Int = RegionContrast.defaultMinEligiblePixels, label: String? = nil
     ) throws -> AssessmentRecord {
         let start = Date()
+        let existing = record.steps.contrast.result?.measurements ?? []
+        let priorMethod = existing.isEmpty ? nil : record.steps.contrast.method
+        let useLegacyMean = priorMethod?.name == RegionContrast.legacyMethodName
+        if !existing.isEmpty && priorMethod?.name != RegionContrast.methodName && !useLegacyMean {
+        throw SafeSpaceError.validation([
+            "This saved comparison uses an unrecognized method. Start a new assessment to compare areas."
+        ])
+        }
         let measurement = try RegionContrast.measure(image, mask: mask, region1: region1, region2: region2,
-                                                      minEligiblePixels: minEligiblePixels, label: label)
+                                                      minEligiblePixels: minEligiblePixels, label: label,
+                                                      useLegacyMean: useLegacyMean)
         var updated = record
-        let existing = updated.steps.contrast.result?.measurements ?? []
         let newIndex = existing.count
         updated.steps.contrast = .init(status: .completed, reason: nil, durationMs: elapsed(start),
-            method: MethodRecord(name: RegionContrast.methodName, version: RegionContrast.methodVersion, params: .object([:])),
+            method: priorMethod ?? MethodRecord(name: RegionContrast.methodName, version: RegionContrast.methodVersion, params: .object([:])),
             result: RegionContrastResult(colorSpace: "cielab", formula: "ciede2000", measurements: existing + [measurement]))
         updated.updatedAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
         updated.findings += Findings.contrastFindings(for: updated, measurementIndex: newIndex)

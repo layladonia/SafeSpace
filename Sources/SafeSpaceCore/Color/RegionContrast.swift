@@ -1,7 +1,3 @@
-// Averages two user-selected regions into CIELAB and feeds the two means to the existing
-// CIEDE2000 formula (ColorDifference.ciede2000). This file is the middle step between a
-// region-selection UI (which only produces two NormalizedRect boxes over a photo) and the
-// already-implemented, already-tested color math in ColorSpace.swift / ColorDifference.swift.
 import Foundation
 
 public struct RegionColorAverage: Codable, Equatable, Sendable {
@@ -49,7 +45,8 @@ public enum RegionContrastError: Error, Sendable {
 }
 
 public enum RegionContrast {
-    public static let methodName = "region_mean_ciede2000"
+    public static let legacyMethodName = "region_mean_ciede2000"
+    public static let methodName = "region_median_ciede2000"
     public static let methodVersion = 1
     public static let defaultMinEligiblePixels = 100
 
@@ -59,10 +56,11 @@ public enum RegionContrast {
         region1: NormalizedRect,
         region2: NormalizedRect,
         minEligiblePixels: Int = defaultMinEligiblePixels,
-        label: String? = nil
+        label: String? = nil,
+        useLegacyMean: Bool = false
     ) throws -> ContrastMeasurement {
-        let a = try averageCIELAB(image: image, mask: mask, rect: region1, regionNumber: 1, minEligiblePixels: minEligiblePixels)
-        let b = try averageCIELAB(image: image, mask: mask, rect: region2, regionNumber: 2, minEligiblePixels: minEligiblePixels)
+        let a = try representativeCIELAB(image: image, mask: mask, rect: region1, regionNumber: 1, minEligiblePixels: minEligiblePixels, useLegacyMean: useLegacyMean)
+        let b = try representativeCIELAB(image: image, mask: mask, rect: region2, regionNumber: 2, minEligiblePixels: minEligiblePixels, useLegacyMean: useLegacyMean)
         let deltaE = ColorDifference.ciede2000(
             PerceptualColor(L: a.cielab.l, a: a.cielab.a, b: a.cielab.b),
             PerceptualColor(L: b.cielab.l, a: b.cielab.a, b: b.cielab.b)
@@ -72,12 +70,13 @@ public enum RegionContrast {
                                    label: label, region1: a, region2: b, deltaE: deltaE)
     }
 
-    private static func averageCIELAB(
-        image: SRGBImage, mask: EligibilityMask, rect: NormalizedRect, regionNumber: Int, minEligiblePixels: Int
+    private static func representativeCIELAB(
+        image: SRGBImage, mask: EligibilityMask, rect: NormalizedRect, regionNumber: Int, minEligiblePixels: Int, useLegacyMean: Bool
     ) throws -> RegionColorAverage {
         precondition(mask.width == image.width && mask.height == image.height)
         let bounds = rect.pixelBounds(width: image.width, height: image.height)
         var sumL = 0.0, sumA = 0.0, sumB = 0.0
+        var lightness: [Double] = [], channelsA: [Double] = [], channelsB: [Double] = []
         var count = 0
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
@@ -89,12 +88,25 @@ public enum RegionContrast {
                     g: Double(image.rgba[o + 1]) / 255.0,
                     b: Double(image.rgba[o + 2]) / 255.0
                 )
-                sumL += lab.L; sumA += lab.a; sumB += lab.b
+                if useLegacyMean {
+                    sumL += lab.L; sumA += lab.a; sumB += lab.b
+                } else {
+                    lightness.append(lab.L); channelsA.append(lab.a); channelsB.append(lab.b)
+                }
                 count += 1
             }
         }
-        guard count >= minEligiblePixels else { throw RegionContrastError.regionTooSmall(region: regionNumber) }
+        guard count > 0, count >= minEligiblePixels else { throw RegionContrastError.regionTooSmall(region: regionNumber) }
         let n = Double(count)
-        return RegionColorAverage(rect: rect, pixelCount: count, cielab: LabValue(l: sumL / n, a: sumA / n, b: sumB / n))
+        func median(_ values: inout [Double]) -> Double {
+            values.sort()
+            let middle = values.count / 2
+            return values.count.isMultiple(of: 2)
+                ? (values[middle - 1] + values[middle]) / 2 : values[middle]
+        }
+        let representative = useLegacyMean
+            ? LabValue(l: sumL / n, a: sumA / n, b: sumB / n)
+            : LabValue(l: median(&lightness), a: median(&channelsA), b: median(&channelsB))
+        return RegionColorAverage(rect: rect, pixelCount: count, cielab: representative)
     }
 }

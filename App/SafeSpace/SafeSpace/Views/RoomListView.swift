@@ -14,20 +14,39 @@ struct RoomListView: View {
 
     var body: some View {
         List {
+            if model.loadError == nil && !model.rooms.isEmpty {
+                Section {
+                    SafeSpaceIntro(
+                        eyebrow: "Safe Space",
+                        title: "Your rooms",
+                        subtitle: "Explore room colors and revisit saved photo assessments.",
+                        icon: "house"
+                    )
+                    .listRowBackground(Color.clear)
+                }
+            }
             Section {
                 ForEach(model.rooms) { room in
                     NavigationLink(value: Route.room(room.id)) {
-                        VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "house")
+                                .foregroundStyle(SafeSpaceTheme.tint)
+                                .frame(width: 42, height: 42)
+                                .background(SafeSpaceTheme.softSage, in: RoundedRectangle(cornerRadius: 12))
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 3) {
                             Text(room.name)
                                 .font(.headline)
                             Text(assessmentCount(model.assessments(in: room.id).count))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
+                        }
                         .padding(.vertical, 4)
                     }
                     // Not `.onDelete` or a destructive role: both animate the row away before
                     // the alert is answered, which made the list jump.
+                    .listRowBackground(SafeSpaceTheme.surface)
                     .swipeActions(allowsFullSwipe: false) {
                         Button("Delete", systemImage: "trash") { roomPendingDelete = room }
                             .tint(.red)
@@ -40,13 +59,14 @@ struct RoomListView: View {
                 }
             }
         }
+        .safeSpaceList()
         .overlay {
             if let loadError = model.loadError {
                 ContentUnavailableView("Saved rooms can't be read", systemImage: "exclamationmark.triangle",
                                        description: Text(loadError))
             } else if model.rooms.isEmpty {
                 ContentUnavailableView {
-                    Label("No rooms yet", systemImage: "house")
+                    Label("Add your first room", systemImage: "house")
                 } description: {
                     Text("Add a room, such as Living Room, then photograph it.")
                 } actions: {

@@ -16,6 +16,24 @@ final class RegionContrastTests: XCTestCase {
     private let leftHalf = NormalizedRect(x: 0, y: 0, width: 0.5, height: 1)
     private let rightHalf = NormalizedRect(x: 0.5, y: 0, width: 0.5, height: 1)
 
+    func testContrastDifferenceBandsUseNonOverlappingRanges() {
+        let cases: [(Double, ContrastDifferenceBand)] = [
+            (0, .imperceptible), (1, .imperceptible),
+            (1.01, .veryLow), (5, .veryLow),
+            (5.01, .moderate), (15, .moderate),
+            (15.01, .clear), (30, .clear),
+            (30.01, .high), (60, .high),
+            (60.01, .veryHigh), (100, .veryHigh),
+            (100.01, .veryHigh)
+        ]
+        for (deltaE, expected) in cases {
+            XCTAssertEqual(ContrastDifferenceBand(deltaE: deltaE), expected, "ΔE00 \(deltaE)")
+        }
+        XCTAssertNil(ContrastDifferenceBand(deltaE: -0.01))
+        XCTAssertNil(ContrastDifferenceBand(deltaE: .nan))
+        XCTAssertNil(ContrastDifferenceBand(deltaE: .infinity))
+    }
+
     func testMatchesDirectFormulaOnSolidRegions() throws {
         let image = splitImage(a: [200, 20, 20], b: [20, 20, 200])
         let mask = EligibilityMask.all(width: image.width, height: image.height)

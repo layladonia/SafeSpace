@@ -10,6 +10,7 @@ struct SafeSpaceApp: App {
             RootView()
                 .environment(model)
                 .environment(router)
+                .tint(SafeSpaceTheme.tint)
         }
     }
 }

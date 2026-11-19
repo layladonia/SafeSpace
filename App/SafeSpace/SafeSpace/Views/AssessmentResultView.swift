@@ -30,29 +30,27 @@ struct AssessmentResultView: View {
                             Text(photoSummary(assessment.record.image)).font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    Section("Color difference") {
-                        if assessment.image != nil {
-                            Button {
-                                isSelectingRegions = true
-                            } label: {
-                                Label("Compare two areas", systemImage: "viewfinder")
-                            }
-                            Text("Draw two boxes on the photo to compare their average colors.")
-                                .font(.caption).foregroundStyle(.secondary)
-                            if let result = assessment.record.steps.contrast.result {
-                                ForEach(result.measurements.reversed()) { measurement in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("ΔE00 \(measurement.deltaE.formatted(.number.precision(.fractionLength(1))))")
-                                            .font(.headline)
-                                        Text("Color difference (CIEDE2000, CIELAB) in this photo")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    .accessibilityElement(children: .combine)
+                    let qualityFindings = assessment.record.findings.filter { $0.kind == .quality }
+                    if !qualityFindings.isEmpty {
+                        Section {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Label("Photo quality warnings", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.headline)
+                                    .foregroundStyle(SafeSpaceTheme.amber)
+                                    .accessibilityAddTraits(.isHeader)
+                                Text("You can still use these results.")
+                                    .foregroundStyle(.secondary)
+                                Divider()
+                                ForEach(qualityFindings) { finding in
+                                    Text(finding.text)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
-                        } else {
-                            Text("The saved photo isn't available, so areas can't be compared.")
-                                .foregroundStyle(.secondary)
+                            .font(.subheadline)
+                            .safeSpaceCard(fill: SafeSpaceTheme.warning,
+                                           border: SafeSpaceTheme.amber.opacity(0.25))
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                         }
                     }
                     if assessment.record.steps.anonymization.status == .failed {
@@ -65,38 +63,38 @@ struct AssessmentResultView: View {
                                  : "No photo copy was saved. The color results include the unmasked photo pixels.")
                         }
                     }
-                    if let result = assessment.record.steps.palette.result {
-                        Section {
-                            ForEach(result.colors) { color in PaletteSwatchRow(color: color) }
-                        } header: {
-                            Text("Color palette")
-                        } footer: {
-                            Text("Shares describe eligible image pixels, not physical room area. Percentages are rounded for display. \((result.droppedShare * 100).formatted(.number.precision(.fractionLength(1))))% was omitted as small color groups.")
-                        }
-                    } else {
-                        Section("Color palette") {
-                            Label("The palette could not be produced.", systemImage: "exclamationmark.triangle")
-                            Text(assessment.record.steps.palette.reason?.rawValue ?? "No result")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    // Task 19: quality sentences get their own section so they aren't listed as
-                    // color results. Task 20 replaces this with the full warning and guidance UI.
-                    let qualityFindings = assessment.record.findings.filter { $0.kind == .quality }
-                    if !qualityFindings.isEmpty {
-                        Section("Photo quality") {
-                            ForEach(qualityFindings) { finding in
-                                Text(finding.text)
-                                    .fixedSize(horizontal: false, vertical: true)
+                    Section("Color difference") {
+                        if assessment.image != nil {
+                            Button {
+                                isSelectingRegions = true
+                            } label: {
+                                Label("Compare two areas", systemImage: "viewfinder")
+                                    .font(.headline)
                             }
+                            Text("Draw two boxes on the photo to compare their representative colors.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if let result = assessment.record.steps.contrast.result {
+                                ForEach(result.measurements.reversed()) { measurement in
+                                    RegionComparisonResult(measurement: measurement,
+                                        method: assessment.record.steps.contrast.method?.name)
+                                }
+                            }
+                        } else {
+                            Text("The saved photo isn't available, so areas can't be compared.")
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    let colorFindings = assessment.record.findings.filter { $0.kind != .limitation && $0.kind != .quality }
-                    if !colorFindings.isEmpty {
-                        Section("What the colors show") {
-                            ForEach(colorFindings) { finding in
-                                Text(finding.text)
-                                    .fixedSize(horizontal: false, vertical: true)
+                    Section {
+                        DisclosureGroup("Color palette") {
+                            if let result = assessment.record.steps.palette.result {
+                                ForEach(result.colors) { color in PaletteSwatchRow(color: color) }
+                                Text("Shares describe analyzed photo pixels, not physical surface area.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                ForEach(assessment.record.findings.filter { $0.kind != .limitation && $0.kind != .quality }) { finding in
+                                    Text(finding.text).font(.subheadline)
+                                }
+                            } else {
+                                Text("The palette could not be produced.")
                             }
                         }
                     }
@@ -135,7 +133,7 @@ struct AssessmentResultView: View {
                             assessment.record.steps.contrast.reason
                         )
                     } header: {
-                        Text("Analysis")
+                        Text("Analysis details")
                     } footer: {
                         Text(
                             """
@@ -145,6 +143,7 @@ struct AssessmentResultView: View {
                         )
                     }
                 }
+                .safeSpaceList()
                 .navigationTitle(assessment.record.createdAt.formatted(date: .abbreviated, time: .shortened))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -216,10 +215,10 @@ struct PaletteSwatchRow: View {
     @ScaledMetric(relativeTo: .body) private var side = 58
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 14)
                 .fill(Color(.sRGB, red: Double(color.srgb8[0]) / 255,
                             green: Double(color.srgb8[1]) / 255, blue: Double(color.srgb8[2]) / 255, opacity: 1))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.primary.opacity(0.4)))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(.primary.opacity(0.4)))
                 .frame(width: min(side, 88), height: min(side, 88)).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 Text("Color \(color.rank) · \(color.share.formatted(.percent.precision(.fractionLength(1))))")

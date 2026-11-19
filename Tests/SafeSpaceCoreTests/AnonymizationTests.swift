@@ -288,15 +288,15 @@ final class AnonymizationTests: XCTestCase {
         XCTAssertThrowsError(try PrivacyMasking.validate(out, against: img))
     }
     func testVisionUnsupportedErrorsMapToUnavailable() {
-        for code in [8, 16, 19, 21, 22] {
+        for code in [8, 9, 16, 19, 21, 22] {
             XCTAssertTrue(PrivacyMasking.isVisionUnavailable(NSError(domain: "com.apple.Vision", code: code)), "code \(code)")
         }
-        XCTAssertFalse(PrivacyMasking.isVisionUnavailable(NSError(domain: "com.apple.Vision", code: 9)))
         XCTAssertFalse(PrivacyMasking.isVisionUnavailable(NSError(domain: "other", code: 19)))
         XCTAssertFalse(PrivacyMasking.isVisionUnavailable(AnonymizationError.detectionFailed))
         #if canImport(Vision)
         XCTAssertEqual(VNErrorDomain, PrivacyMasking.visionErrorDomain)
         XCTAssertEqual(PrivacyMasking.visionUnavailableCodes, [VNErrorCode.notImplemented.rawValue,
+            VNErrorCode.internalError.rawValue,
             VNErrorCode.unsupportedRevision.rawValue, VNErrorCode.unsupportedRequest.rawValue, 21, 22])
         if #available(macOS 14, iOS 17, *) {
             XCTAssertEqual(VNErrorCode.unsupportedComputeStage.rawValue, 21)

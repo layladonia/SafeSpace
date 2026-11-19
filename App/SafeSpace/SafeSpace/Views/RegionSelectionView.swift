@@ -19,6 +19,14 @@ struct RegionSelectionView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Drag on the photo to mark region A, then region B. Each box needs at least 100 eligible pixels.")
                             .font(.subheadline)
+                        if stored.record.steps.contrast.method?.name == RegionContrast.legacyMethodName {
+                            Text("This older assessment uses the mean method. Start a new assessment to use the median method.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        ForEach(stored.record.findings.filter { $0.kind == .quality }) { finding in
+                            Label(finding.text, systemImage: "exclamationmark.triangle")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
                         RegionBoxPicker(image: image, regionA: $regionA, regionB: $regionB)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         HStack(spacing: 16) {
@@ -37,15 +45,8 @@ struct RegionSelectionView: View {
                         .disabled(regionA == nil && regionB == nil)
 
                         if let measurement {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Region A vs. Region B").font(.headline)
-                                Text("ΔE00 = \(measurement.deltaE.formatted(.number.precision(.fractionLength(2))))")
-                                    .font(.title2.bold())
-                                Text("An image-derived color difference was detected between the selected "
-                                    + "regions. Larger ΔE00 values indicate greater color difference.")
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            .accessibilityElement(children: .combine)
+                            RegionComparisonResult(measurement: measurement,
+                                method: stored.record.steps.contrast.method?.name ?? RegionContrast.methodName)
                         }
                         if let errorMessage {
                             Label(errorMessage, systemImage: "exclamationmark.triangle")

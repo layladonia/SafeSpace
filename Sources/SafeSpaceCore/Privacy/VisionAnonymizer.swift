@@ -106,10 +106,9 @@ public struct VisionAnonymizer: Anonymizer {
 /// box blur with radius in working-copy pixels, copied back ONLY inside the mask.
 enum PrivacyMasking {
     static let visionErrorDomain = "com.apple.Vision"
-    /// VNErrorCode raw values meaning the request can't run here: notImplemented (8),
-    /// unsupportedRevision (16), unsupportedRequest (19), unsupportedComputeStage (21),
-    /// unsupportedComputeDevice (22). Raw values avoid per-case availability checks.
-    static let visionUnavailableCodes: Set<Int> = [8, 16, 19, 21, 22]
+    /// Vision request errors that prevent inference from running, including internalError (9)
+    /// when Vision can't create its inference context. Raw values avoid availability checks.
+    static let visionUnavailableCodes: Set<Int> = [8, 9, 16, 19, 21, 22]
     static func isVisionUnavailable(_ error: Error) -> Bool {
         let e = error as NSError
         return e.domain == visionErrorDomain && visionUnavailableCodes.contains(e.code)

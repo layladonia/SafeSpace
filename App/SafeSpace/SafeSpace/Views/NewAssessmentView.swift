@@ -19,6 +19,14 @@ struct NewAssessmentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                if photo == nil {
+                    SafeSpaceIntro(
+                        eyebrow: "New assessment",
+                        title: "Start with a room photo",
+                        subtitle: "Take a photo or choose one from your library.",
+                        icon: "camera"
+                    )
+                }
                 if CameraPicker.isAvailable {
                     Button {
                         errorMessage = nil; isShowingCamera = true
@@ -26,13 +34,29 @@ struct NewAssessmentView: View {
                         Label("Take photo", systemImage: "camera").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.roundedRectangle(radius: 14))
+                    .controlSize(.large)
                     .disabled(photo != nil || isLoading || isAnalyzing)
                 }
                 PhotosPicker(selection: $selection, matching: .images, preferredItemEncoding: .current) {
                     Label("Choose from library", systemImage: "photo").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 14))
+                .controlSize(.large)
                 .disabled(photo != nil || isLoading || isAnalyzing)
+                if photo == nil {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Room photo tips")
+                            .font(.headline)
+                            .accessibilityAddTraits(.isHeader)
+                        Label("Use even lighting and avoid window glare.", systemImage: "sun.max")
+                        Label("Hold your phone steady to reduce blur.", systemImage: "hand.raised")
+                        Label("Frame the part of the room you want to analyze.", systemImage: "viewfinder")
+                    }
+                    .font(.subheadline)
+                    .safeSpaceCard()
+                }
                 Text("One photo per assessment. Analysis runs on this iPhone.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Text("Detected faces and people are blurred in the saved copy and excluded from color statistics. Detection may miss people. Your original photo is not saved by this app; the source photo in Photos is unchanged.")
@@ -53,6 +77,7 @@ struct NewAssessmentView: View {
                 }
             }.padding()
         }
+        .background(SafeSpaceTheme.canvas)
         .navigationTitle("New assessment")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(isAnalyzing)

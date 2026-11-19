@@ -15,13 +15,30 @@ struct RoomDetailView: View {
 
             List {
                 Section {
-                    Button {
-                        router.push(.newAssessment(roomID: roomID))
-                    } label: {
-                        Label("New assessment", systemImage: "photo.badge.plus")
+                    VStack(alignment: .leading, spacing: 14) {
+                        SafeSpaceIntro(
+                            eyebrow: "Room overview",
+                            title: "Explore this room’s colors",
+                            subtitle: "Take or choose a photo to see its palette and compare areas.",
+                            icon: "swatchpalette"
+                        )
+                        Button {
+                            router.push(.newAssessment(roomID: roomID))
+                        } label: {
+                            Text("New assessment")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .overlay(alignment: .leading) {
+                                    Image(systemName: "camera")
+                                        .accessibilityHidden(true)
+                                }
+                                .padding(.vertical, 5)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.roundedRectangle(radius: 14))
                     }
+                    .listRowBackground(Color.clear)
                 }
-
                 Section {
                     if history.isEmpty {
                         Text("No assessments for this room yet.")
@@ -40,19 +57,21 @@ struct RoomDetailView: View {
                             }
                         }
                         // Same as the room list: no row-removal animation before the alert is answered.
+                        .listRowBackground(SafeSpaceTheme.surface)
                         .swipeActions(allowsFullSwipe: false) {
                             Button("Delete", systemImage: "trash") { assessmentPendingDelete = assessment.id }
                                 .tint(.red)
                         }
                     }
                 } header: {
-                    Text("History")
+                    Text("Saved assessments")
                 } footer: {
                     if !history.isEmpty {
                         Text("Saved only on this iPhone. \(StorageStatement.deleteAssessment)")
                     }
                 }
             }
+            .safeSpaceList()
             .navigationTitle(room.name)
             .alert(
                 "Delete this assessment?",
@@ -93,7 +112,7 @@ private struct AssessmentRow: View {
             }
             .frame(width: 56, height: 56)
             .background(.quaternary)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(assessment.createdAt, format: .dateTime.month().day().hour().minute())

@@ -65,6 +65,14 @@ struct RegionSelectionView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(regionA == nil || regionB == nil || isComparing)
+                        Button {
+                            dismiss()
+                        } label: {
+                            Text("Done")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isComparing)
                     }
                     .padding()
                 }

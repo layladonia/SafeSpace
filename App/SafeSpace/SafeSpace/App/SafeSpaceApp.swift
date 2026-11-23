@@ -4,13 +4,32 @@ import SwiftUI
 struct SafeSpaceApp: App {
     @State private var model = AppModel()
     @State private var router = Router()
+    @State private var isShowingSplash = true
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(model)
-                .environment(router)
-                .tint(SafeSpaceTheme.tint)
+            ZStack {
+                RootView()
+                    .environment(model)
+                    .environment(router)
+                    .tint(SafeSpaceTheme.tint)
+                    // Keep VoiceOver from reaching the room list behind the splash.
+                    .accessibilityHidden(isShowingSplash)
+                if isShowingSplash {
+                    SplashView()
+                        .transition(.opacity)
+                        .zIndex(1)
+                }
+            }
+            .task {
+                // The splash stays up until the saved rooms are read, so the next screen is
+                // already the right one (room history, or "Add your first room"). The short
+                // minimum keeps it from flashing on a fast load.
+                async let minimumTime: Void? = try? Task.sleep(for: .seconds(0.8))
+                await model.reload()
+                _ = await minimumTime
+                withAnimation(.easeInOut(duration: 0.35)) { isShowingSplash = false }
+            }
         }
     }
 }
@@ -25,7 +44,6 @@ struct RootView: View {
         @Bindable var router = router
         NavigationStack(path: $router.path) {
             RoomListView()
-                .task { await model.reload() }
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .room(let roomID):

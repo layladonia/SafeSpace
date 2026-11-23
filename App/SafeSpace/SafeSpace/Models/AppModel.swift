@@ -15,6 +15,9 @@ final class AppModel {
     private(set) var summaries: [Room.ID: [AssessmentSummary]] = [:]
     /// Set when the store can't be read; shown on the room list.
     var loadError: String?
+    /// False until the first `reload()` finishes, so screens don't show "no rooms" before the
+    /// saved rooms have been read.
+    private(set) var hasLoaded = false
 
     init(store: any AssessmentStore = AppModel.makeDefaultStore()) {
         self.store = store
@@ -42,6 +45,7 @@ final class AppModel {
         } catch {
             loadError = error.localizedDescription
         }
+        hasLoaded = true
     }
 
     func room(id: Room.ID) -> Room? { rooms.first { $0.id == id } }

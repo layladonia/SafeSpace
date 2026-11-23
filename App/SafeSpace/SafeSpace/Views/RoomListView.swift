@@ -2,6 +2,9 @@ import SwiftUI
 import SafeSpaceCore
 
 struct RoomListView: View {
+    // TODO: Revisit "calmer spaces". It's close to the banned "calming" (`Findings.bannedTerms`)
+    // and suggests an effect on the room, which the app must not claim. The banned-term check only
+    // covers findings text and matches whole words, so it won't flag this string.
     /// One-sentence description of the app, shown on the main page.
     static let about = "SafeSpace analyzes room photos to show their colors and contrast, helping you plan calmer spaces."
 
@@ -20,7 +23,7 @@ struct RoomListView: View {
             if model.loadError == nil && !model.rooms.isEmpty {
                 Section {
                     SafeSpaceIntro(
-                        eyebrow: "Safe Space",
+                        eyebrow: "SafeSpace",
                         title: "Your rooms",
                         subtitle: Self.about,
                         icon: "house"

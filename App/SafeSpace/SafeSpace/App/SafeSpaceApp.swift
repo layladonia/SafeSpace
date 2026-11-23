@@ -13,6 +13,8 @@ struct SafeSpaceApp: App {
                     .environment(model)
                     .environment(router)
                     .tint(SafeSpaceTheme.tint)
+                    // Keep VoiceOver from reaching the room list behind the splash.
+                    .accessibilityHidden(isShowingSplash)
                 if isShowingSplash {
                     SplashView()
                         .transition(.opacity)

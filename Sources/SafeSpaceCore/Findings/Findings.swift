@@ -202,3 +202,9 @@ public enum Findings {
         l < 0.35 ? "very dark" : l < 0.5 ? "dark" : l < 0.7 ? "medium" : l < 0.85 ? "light" : "very light"
     }
 }
+
+public extension PaletteColor {
+    /// Plain-language color name (e.g. "light beige", "dark blue"), derived from OKLCh.
+    /// Computed, not stored, so saved assessment records are unchanged.
+    var name: String { Findings.colorName(oklch) }
+}

@@ -360,7 +360,7 @@ v1 **replaces** v0 (`origin/assessmentJson`). Because v0 was never written by sh
 - Invariants (S11, enforced by unit tests, not the validator): identical regions → `0`; swapping a and b → the same value within 1e-9.
 - Overlapping regions are allowed.
 - `label`: an optional user-entered name, such as "wall vs floor". It is `null` in v1 UI unless B adds a text field.
-- The UI must name the color space and the formula: "Color difference (CIEDE2000, CIELAB D65) in this photo". Display ΔE to one decimal.
+- The UI must name the color space and the formula: "Color difference (CIEDE2000, CIELAB D65) in this photo". Display ΔE to one decimal. It may show approximate interpretation bands: ≤1.0 imperceptible, (1.0, 5.0] very low, (5.0, 15.0] moderate, (15.0, 30.0] clear, (30.0, 60.0] high, and (60.0, 100.0] very high. These are a rough visual guide, not official CIE cutoffs or a judgment about whether someone will see the difference.
 
 ### 4.9 `findings` (F2, owner D)
 

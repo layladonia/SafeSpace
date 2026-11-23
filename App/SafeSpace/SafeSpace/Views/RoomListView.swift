@@ -2,6 +2,9 @@ import SwiftUI
 import SafeSpaceCore
 
 struct RoomListView: View {
+    /// One-sentence description of the app, shown on the main page.
+    static let about = "SafeSpace analyzes room photos to show their colors and contrast, helping you plan calmer spaces."
+
     @Environment(AppModel.self) private var model
     @Environment(Router.self) private var router
 
@@ -19,7 +22,7 @@ struct RoomListView: View {
                     SafeSpaceIntro(
                         eyebrow: "Safe Space",
                         title: "Your rooms",
-                        subtitle: "Explore room colors and revisit saved photo assessments.",
+                        subtitle: Self.about,
                         icon: "house"
                     )
                     .listRowBackground(Color.clear)
@@ -64,11 +67,11 @@ struct RoomListView: View {
             if let loadError = model.loadError {
                 ContentUnavailableView("Saved rooms can't be read", systemImage: "exclamationmark.triangle",
                                        description: Text(loadError))
-            } else if model.rooms.isEmpty {
+            } else if model.hasLoaded && model.rooms.isEmpty {
                 ContentUnavailableView {
                     Label("Add your first room", systemImage: "house")
                 } description: {
-                    Text("Add a room, such as Living Room, then photograph it.")
+                    Text("\(Self.about)\n\nAdd a room, such as Living Room, then photograph it.")
                 } actions: {
                     Button("Add room") { isNamingRoom = true }
                         .buttonStyle(.borderedProminent)

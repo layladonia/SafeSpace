@@ -223,6 +223,7 @@ struct PaletteSwatchRow: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Color \(color.rank) · \(color.share.formatted(.percent.precision(.fractionLength(1))))")
                     .font(.headline)
+                Text(color.name.prefix(1).uppercased() + color.name.dropFirst()).font(.body)
                 Text(color.hex).font(.body.monospaced()).foregroundStyle(.secondary)
                 Text("OKLCh lightness \(color.oklch.l.formatted(.number.precision(.fractionLength(3)))), chroma \(color.oklch.c.formatted(.number.precision(.fractionLength(3))))")
                     .font(.caption)

@@ -99,11 +99,9 @@ struct AssessmentResultView: View {
                         }
                     }
                     Section("Limitations") {
-                        ForEach(
-                            assessment.record.findings.filter {
-                                $0.kind == .limitation
-                            }
-                        ) { finding in
+                        // The record keeps one contrast limitation per measurement (each sourced to
+                        // its own ΔE), but they share the same sentence, so show each text once.
+                        ForEach(uniqueLimitations(assessment.record.findings)) { finding in
                             Text(finding.text)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -188,6 +186,11 @@ struct AssessmentResultView: View {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "Unknown error") }
     }
+    private func uniqueLimitations(_ findings: [Finding]) -> [Finding] {
+        var seen = Set<String>()
+        return findings.filter { $0.kind == .limitation && seen.insert($0.text).inserted }
+    }
+
     private func photoSummary(_ image: ImageRecord) -> String {
         "Analyzed copy \(image.workingCopy.width) × \(image.workingCopy.height) pixels, from "
             + "\(image.original.width) × \(image.original.height) \(image.original.format.uppercased()) (\(image.source.rawValue))"

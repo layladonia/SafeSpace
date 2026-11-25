@@ -13,6 +13,11 @@ struct AssessmentResultView: View {
     @State private var errorMessage: String?
     @State private var isSelectingRegions = false
 
+    private func uniqueLimitations(_ record: AssessmentRecord) -> [Finding] {
+        var seen = Set<String>()
+        return record.findings.filter { $0.kind == .limitation && seen.insert($0.text).inserted }
+    }
+
     var body: some View {
         Group {
             if let assessment {
@@ -99,11 +104,9 @@ struct AssessmentResultView: View {
                         }
                     }
                     Section("Limitations") {
-                        ForEach(
-                            assessment.record.findings.filter {
-                                $0.kind == .limitation
-                            }
-                        ) { finding in
+                        // Assessments saved before the contrast limitation was merged can hold
+                        // one copy per comparison, so repeated sentences are shown once.
+                        ForEach(uniqueLimitations(assessment.record)) { finding in
                             Text(finding.text)
                                 .fixedSize(horizontal: false, vertical: true)
                         }

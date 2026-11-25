@@ -242,7 +242,7 @@ public enum AssessmentPipeline {
             method: priorMethod ?? MethodRecord(name: RegionContrast.methodName, version: RegionContrast.methodVersion, params: .object([:])),
             result: RegionContrastResult(colorSpace: "cielab", formula: "ciede2000", measurements: existing + [measurement]))
         updated.updatedAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
-        updated.findings += Findings.contrastFindings(for: updated, measurementIndex: newIndex)
+        Findings.addContrastFinding(to: &updated, measurementIndex: newIndex)
         try AssessmentValidator.validate(updated)
         return updated
     }

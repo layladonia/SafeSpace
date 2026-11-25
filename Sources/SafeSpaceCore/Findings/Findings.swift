@@ -19,13 +19,20 @@ public enum Findings {
     static let contrastNotJudgmentText = "This number measures the color difference between the two selected areas in this photo. "
         + "It does not measure whether a person can see that difference, and it is not a judgment about the room."
 
-    /// Finding for one newly added contrast measurement (contract §5.8), for
-    /// `AssessmentPipeline.addContrast` to append without regenerating every other finding.
-    public static func contrastFindings(for record: AssessmentRecord, measurementIndex: Int) -> [Finding] {
+    /// Updates `record.findings` for one newly added contrast measurement (contract §5.8), for
+    /// `AssessmentPipeline.addContrast` to use without regenerating every other finding. The
+    /// contrast limitation appears once per assessment, not once per measurement: when it already
+    /// exists, the new measurement is added to its sources instead of repeating the sentence.
+    public static func addContrastFinding(to record: inout AssessmentRecord, measurementIndex: Int) {
         precondition(!containsBannedTerm(contrastNotJudgmentText))
-        return [Finding(id: "f\(record.findings.count + 1)", kind: .limitation, templateId: "limitation.contrast_not_judgment",
-                        templateVersion: 1, text: contrastNotJudgmentText,
-                        sources: ["/steps/contrast/result/measurements/\(measurementIndex)/delta_e"])]
+        let source = "/steps/contrast/result/measurements/\(measurementIndex)/delta_e"
+        if let i = record.findings.firstIndex(where: { $0.templateId == "limitation.contrast_not_judgment" }) {
+            if !record.findings[i].sources.contains(source) { record.findings[i].sources.append(source) }
+            return
+        }
+        record.findings.append(Finding(id: "f\(record.findings.count + 1)", kind: .limitation,
+                                       templateId: "limitation.contrast_not_judgment", templateVersion: 1,
+                                       text: contrastNotJudgmentText, sources: [source]))
     }
 
     public static func generate(for record: AssessmentRecord) -> [Finding] {
@@ -86,9 +93,11 @@ public enum Findings {
         }
         append(.limitation, "limitation.palette_not_contrast",
                "Pixel shares are not measurements of physical surface area. A palette does not compare the color difference between two selected areas.")
-        for i in (record.steps.contrast.result?.measurements ?? []).indices {
+        // One contrast limitation per assessment, sourced from every measurement.
+        let measurements = record.steps.contrast.result?.measurements ?? []
+        if !measurements.isEmpty {
             append(.limitation, "limitation.contrast_not_judgment", contrastNotJudgmentText,
-                   ["/steps/contrast/result/measurements/\(i)/delta_e"])
+                   measurements.indices.map { "/steps/contrast/result/measurements/\($0)/delta_e" })
         }
         // Contract §4.9 conditional limitation. It says the user may continue, because quality
         // never blocks (decision log Oct 11).

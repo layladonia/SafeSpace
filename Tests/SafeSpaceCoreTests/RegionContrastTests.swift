@@ -175,7 +175,11 @@ final class RegionContrastTests: XCTestCase {
         XCTAssertEqual(measurements[1].label, "wall vs floor")
         XCTAssertNotEqual(measurements[0].measurementId, measurements[1].measurementId)
         XCTAssertTrue(updated.updatedAt >= output.record.updatedAt)
-        XCTAssertEqual(updated.findings.filter { $0.templateId == "limitation.contrast_not_judgment" }.count, 2)
+        let contrastLimitations = updated.findings.filter { $0.templateId == "limitation.contrast_not_judgment" }
+        XCTAssertEqual(contrastLimitations.count, 1)
+        XCTAssertEqual(contrastLimitations.first?.sources, [
+            "/steps/contrast/result/measurements/0/delta_e", "/steps/contrast/result/measurements/1/delta_e"
+        ])
 
         // Must round-trip through the real validator and full JSON encode/decode.
         let data = try AssessmentJSON.encode(updated)

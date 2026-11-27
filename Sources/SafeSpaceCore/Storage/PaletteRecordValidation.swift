@@ -125,7 +125,10 @@ public enum AssessmentValidator {
             }
         }
         if let contrast = r.steps.contrast.result {
-            require(r.steps.contrast.method?.name == RegionContrast.methodName, "Unknown contrast method")
+            // Assessments compared before the switch to the median method keep the mean method's
+            // name, and `AssessmentPipeline.addContrast` keeps adding to them with it.
+            require([RegionContrast.methodName, RegionContrast.legacyMethodName].contains(r.steps.contrast.method?.name ?? ""),
+                    "Unknown contrast method")
             require(r.steps.contrast.method?.version == RegionContrast.methodVersion, "Unsupported contrast method version")
             require(contrast.colorSpace == "cielab", "Invalid contrast color space")
             require(contrast.formula == "ciede2000", "Invalid contrast formula")

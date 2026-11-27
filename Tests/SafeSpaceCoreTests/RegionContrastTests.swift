@@ -213,6 +213,61 @@ final class RegionContrastTests: XCTestCase {
         XCTAssertThrowsError(try AssessmentPipeline.addContrast(to: output.record, image: image, mask: mask, region1: sliver, region2: rightHalf))
     }
 
+    /// 40x20 image whose left half is 3/4 red and 1/4 white, so its mean and median CIELAB differ;
+    /// the right half is solid blue.
+    private func mixedLeftImage() -> SRGBImage {
+        var rgba: [UInt8] = []
+        for y in 0..<20 {
+            for _ in 0..<20 { rgba.append(contentsOf: y % 4 == 0 ? [255, 255, 255, 255] : [200, 20, 20, 255]) }
+            for _ in 0..<20 { rgba.append(contentsOf: [20, 20, 200, 255]) }
+        }
+        return SRGBImage(width: 40, height: 20, rgba: rgba)
+    }
+
+    /// A record compared before the median switch, as it is saved on disk: same shape as today,
+    /// with the mean method's name.
+    private func legacyRecord(image: SRGBImage) async throws -> AssessmentRecord {
+        let producer = Producer(kind: "app", appVersion: "test", coreVersion: SafeSpaceCore.version, device: "unit-test", os: "unit-test")
+        var options = PipelineOptions()
+        options.contrastRegion1 = leftHalf
+        options.contrastRegion2 = rightHalf
+        var record = try await AssessmentPipeline.run(
+            imageData: image.pngData(), source: .library, roomID: UUID().uuidString.lowercased(),
+            producer: producer, options: options
+        ).record
+        record.steps.contrast.method?.name = RegionContrast.legacyMethodName
+        return record
+    }
+
+    func testLegacyMeanRecordStillDecodes() async throws {
+        let record = try await legacyRecord(image: mixedLeftImage())
+        let decoded = try AssessmentJSON.decode(try AssessmentJSON.encoder().encode(record))
+        XCTAssertEqual(decoded.steps.contrast.method?.name, RegionContrast.legacyMethodName)
+        XCTAssertEqual(decoded.steps.contrast.result?.measurements.count, 1)
+    }
+
+    func testAddContrastKeepsTheLegacyMeanMethod() async throws {
+        let image = mixedLeftImage()
+        let mask = EligibilityMask.all(width: image.width, height: image.height)
+        let record = try await legacyRecord(image: image)
+
+        let updated = try AssessmentPipeline.addContrast(to: record, image: image, mask: mask, region1: leftHalf, region2: rightHalf)
+
+        XCTAssertEqual(updated.steps.contrast.method?.name, RegionContrast.legacyMethodName)
+        let added = try XCTUnwrap(updated.steps.contrast.result?.measurements.last)
+        let mean = try RegionContrast.measure(image, mask: mask, region1: leftHalf, region2: rightHalf, useLegacyMean: true)
+        let median = try RegionContrast.measure(image, mask: mask, region1: leftHalf, region2: rightHalf)
+        XCTAssertNotEqual(mean.deltaE, median.deltaE, accuracy: 0.5, "Fixture must tell the two methods apart")
+        XCTAssertEqual(added.deltaE, mean.deltaE, accuracy: 1e-12)
+        _ = try AssessmentJSON.decode(try AssessmentJSON.encode(updated))
+    }
+
+    func testUnknownContrastMethodIsStillRejected() async throws {
+        var record = try await legacyRecord(image: mixedLeftImage())
+        record.steps.contrast.method?.name = "region_mode_ciede2000"
+        XCTAssertThrowsError(try AssessmentValidator.validate(record))
+    }
+
     /// Fixture photos: a plain vertical split, solid color on each half (TestImages/).
     private static let testImagesDir = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().appendingPathComponent("TestImages")
